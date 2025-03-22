@@ -13,7 +13,9 @@ from open_webui.config import (
     ELASTICSEARCH_INDEX_PREFIX,
     SSL_ASSERT_FINGERPRINT,
 )
+import logging
 
+log = logging.getLogger(__name__)
 
 class ElasticsearchClient:
     """
@@ -274,20 +276,28 @@ class ElasticsearchClient:
         ids: Optional[list[str]] = None,
         filter: Optional[dict] = None,
     ):
+        try:
+            # Check if any indices exist
+            if not self.client.indices.exists(index=f"{self.index_prefix}*"):
+                log.debug(f"Attempted to delete from non-existent collection {collection_name}. Ignoring.")
+                return
+                
+            query = {
+                "query": {"bool": {"filter": [{"term": {"collection": collection_name}}]}}
+            }
+            # logic based on chromaDB
+            if ids:
+                query["query"]["bool"]["filter"].append({"terms": {"_id": ids}})
+            elif filter:
+                for field, value in filter.items():
+                    query["query"]["bool"]["filter"].append(
+                        {"term": {f"metadata.{field}": value}}
+                    )
 
-        query = {
-            "query": {"bool": {"filter": [{"term": {"collection": collection_name}}]}}
-        }
-        # logic based on chromaDB
-        if ids:
-            query["query"]["bool"]["filter"].append({"terms": {"_id": ids}})
-        elif filter:
-            for field, value in filter.items():
-                query["query"]["bool"]["filter"].append(
-                    {"term": {f"metadata.{field}": value}}
-                )
-
-        self.client.delete_by_query(index=f"{self.index_prefix}*", body=query)
+            self.client.delete_by_query(index=f"{self.index_prefix}*", body=query)
+        except Exception as e:
+            log.debug(f"Error deleting from collection {collection_name}: {e}. Ignoring.")
+            pass
 
     def reset(self):
         indices = self.client.indices.get(index=f"{self.index_prefix}*")

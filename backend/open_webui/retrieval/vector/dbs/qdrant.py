@@ -155,31 +155,42 @@ class QdrantClient:
         filter: Optional[dict] = None,
     ):
         # Delete the items from the collection based on the ids.
-        field_conditions = []
+        try:
+            collection_full_name = f"{self.collection_prefix}_{collection_name}"
+            
+            # Check if collection exists
+            if not self.client.collection_exists(collection_full_name):
+                log.debug(f"Attempted to delete from non-existent collection {collection_name}. Ignoring.")
+                return
+                
+            field_conditions = []
 
-        if ids:
-            for id_value in ids:
-                field_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.id",
-                        match=models.MatchValue(value=id_value),
+            if ids:
+                for id_value in ids:
+                    field_conditions.append(
+                        models.FieldCondition(
+                            key="metadata.id",
+                            match=models.MatchValue(value=id_value),
+                        ),
                     ),
-                ),
-        elif filter:
-            for key, value in filter.items():
-                field_conditions.append(
-                    models.FieldCondition(
-                        key=f"metadata.{key}",
-                        match=models.MatchValue(value=value),
+            elif filter:
+                for key, value in filter.items():
+                    field_conditions.append(
+                        models.FieldCondition(
+                            key=f"metadata.{key}",
+                            match=models.MatchValue(value=value),
+                        ),
                     ),
-                ),
 
-        return self.client.delete(
-            collection_name=f"{self.collection_prefix}_{collection_name}",
-            points_selector=models.FilterSelector(
-                filter=models.Filter(must=field_conditions)
-            ),
-        )
+            return self.client.delete(
+                collection_name=collection_full_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(must=field_conditions)
+                ),
+            )
+        except Exception as e:
+            log.debug(f"Error deleting from collection {collection_name}: {e}. Ignoring.")
+            pass
 
     def reset(self):
         # Resets the database. This will delete all collections and item entries.

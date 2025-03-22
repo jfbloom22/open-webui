@@ -269,25 +269,35 @@ class MilvusClient:
         filter: Optional[dict] = None,
     ):
         # Delete the items from the collection based on the ids.
-        collection_name = collection_name.replace("-", "_")
-        if ids:
-            return self.client.delete(
-                collection_name=f"{self.collection_prefix}_{collection_name}",
-                ids=ids,
-            )
-        elif filter:
-            # Convert the filter dictionary to a string using JSON_CONTAINS.
-            filter_string = " && ".join(
-                [
-                    f'metadata["{key}"] == {json.dumps(value)}'
-                    for key, value in filter.items()
-                ]
-            )
+        try:
+            collection_name = collection_name.replace("-", "_")
+            collection_full_name = f"{self.collection_prefix}_{collection_name}"
+            
+            if not self.client.has_collection(collection_name=collection_full_name):
+                log.debug(f"Attempted to delete from non-existent collection {collection_name}. Ignoring.")
+                return
+                
+            if ids:
+                return self.client.delete(
+                    collection_name=collection_full_name,
+                    ids=ids,
+                )
+            elif filter:
+                # Convert the filter dictionary to a string using JSON_CONTAINS.
+                filter_string = " && ".join(
+                    [
+                        f'metadata["{key}"] == {json.dumps(value)}'
+                        for key, value in filter.items()
+                    ]
+                )
 
-            return self.client.delete(
-                collection_name=f"{self.collection_prefix}_{collection_name}",
-                filter=filter_string,
-            )
+                return self.client.delete(
+                    collection_name=collection_full_name,
+                    filter=filter_string,
+                )
+        except Exception as e:
+            log.debug(f"Error deleting from collection {collection_name}: {e}. Ignoring.")
+            pass
 
     def reset(self):
         # Resets the database. This will delete all collections and item entries.

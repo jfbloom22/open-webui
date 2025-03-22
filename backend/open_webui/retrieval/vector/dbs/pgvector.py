@@ -352,6 +352,12 @@ class PgvectorClient:
         filter: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
+            # Check if collection exists first
+            exists = self.has_collection(collection_name)
+            if not exists:
+                log.debug(f"Attempted to delete from non-existent collection '{collection_name}'. Ignoring.")
+                return
+                
             query = self.session.query(DocumentChunk).filter(
                 DocumentChunk.collection_name == collection_name
             )

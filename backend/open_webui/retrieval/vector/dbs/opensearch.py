@@ -1,5 +1,6 @@
 from opensearchpy import OpenSearch
 from typing import Optional
+import logging
 
 from open_webui.retrieval.vector.main import VectorItem, SearchResult, GetResult
 from open_webui.config import (
@@ -10,6 +11,7 @@ from open_webui.config import (
     OPENSEARCH_PASSWORD,
 )
 
+log = logging.getLogger(__name__)
 
 class OpenSearchClient:
     def __init__(self):
@@ -87,7 +89,7 @@ class OpenSearchClient:
             index=f"{self.index_prefix}_{collection_name}"
         )
 
-    def delete_colleciton(self, collection_name: str):
+    def delete_collection(self, collection_name: str):
         # delete_collection here means delete index.
         # We are simply adapting to the norms of the other DBs.
         self.client.indices.delete(index=f"{self.index_prefix}_{collection_name}")
@@ -201,11 +203,23 @@ class OpenSearchClient:
             self.client.bulk(actions)
 
     def delete(self, collection_name: str, ids: list[str]):
-        actions = [
-            {"delete": {"_index": f"{self.index_prefix}_{collection_name}", "_id": id}}
-            for id in ids
-        ]
-        self.client.bulk(body=actions)
+        # Delete the items from the collection based on the ids.
+        try:
+            index_name = f"{self.index_prefix}_{collection_name}"
+            
+            # Check if index exists
+            if not self.client.indices.exists(index=index_name):
+                log.debug(f"Attempted to delete from non-existent collection {collection_name}. Ignoring.")
+                return
+                
+            actions = [
+                {"delete": {"_index": index_name, "_id": id}}
+                for id in ids
+            ]
+            self.client.bulk(body=actions)
+        except Exception as e:
+            log.debug(f"Error deleting from collection {collection_name}: {e}. Ignoring.")
+            pass
 
     def reset(self):
         indices = self.client.indices.get(index=f"{self.index_prefix}_*")
