@@ -781,7 +781,12 @@ class Pipe:
             return
 
         try:
-            chunk_str = chunk
+            # Ensure chunk is a string
+            if isinstance(chunk, bytes):
+                chunk_str = chunk.decode('utf-8')
+            else:
+                chunk_str = str(chunk) # Ensure it's a string if not bytes
+
             if chunk_str.startswith("data: "):
                 chunk_str = chunk_str[6:]
 
