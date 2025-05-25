@@ -194,10 +194,6 @@ class Action:
                             )
                         )
                     if file_url:
-                        # Create base64 data URL for iOS listening compatibility
-                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                        data_url = f"data:audio/mpeg;base64,{audio_base64}"
-                        
                         await __event_emitter__(
                             {
                                 "type": "message",
@@ -205,12 +201,9 @@ class Action:
                                     "content": f"""
 🎵 **Audio Generated Successfully!**
 
-[📥 Download Audio File]({file_url})
+[🎧 Download Audio]({file_url})
 
-[🎧 Listen to Audio]({data_url})
-
-*Note: Downloading is only supported on desktop browsers. Mobile users can listen directly by tapping the link above.*
-
+*Note: Downloading not supported on iOS.*
 """
                                 },
                             }
