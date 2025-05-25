@@ -281,6 +281,10 @@ class Pipe:
             default=0.5,
             description="Temperature the MCTS process will attempt to converge to with Temperature decay, if set to dinamic this value is not fixed",
         )
+        TAVILY_MIN_SCORE_THRESHOLD: float = Field(
+            default=0.70,
+            description="Minimum relevance score (0.0-1.0) for Tavily search results to be included. Lower to include more results, raise for higher precision."
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -373,6 +377,11 @@ class Pipe:
             logger.error("Empty query provided to web search")
             return []
 
+        # Check query length as per Tavily best practices
+        if len(query) > 390: # 400 is the hard limit, 390 gives a small buffer
+            logger.warning(f"Tavily query length ({len(query)} chars) exceeds recommended 390 chars. Consider shortening or breaking into sub-queries. Query: \"{query[:100]}...\"" )
+            # Optionally, you could truncate here: query = query[:390]
+
         async with aiohttp.ClientSession() as session:
             try:
                 url = "https://api.tavily.com/search"
@@ -382,7 +391,7 @@ class Pipe:
                 }
                 data = {
                     "query": query,
-                    "search_depth": "basic",
+                    "search_depth": "advanced",
                     "topic": "general",
                     "max_results": self.valves.MAX_SEARCH_RESULTS,
                     "include_answer": False,
@@ -412,27 +421,36 @@ class Pipe:
                         logger.info("No results found in Tavily response")
                         return []
 
+                    raw_results_count = len(results)
+                    logger.debug(f"Received {raw_results_count} results from Tavily before score filtering.")
+
                     processed_results = []
+                    min_score_threshold = self.valves.TAVILY_MIN_SCORE_THRESHOLD
+
                     for result in results:
                         try:
+                            current_score = result.get("score", 0.0)
                             if not all(
                                 k in result
-                                for k in ["title", "url", "content", "score"]
-                            ):
-                                logger.warning("Incomplete result from Tavily API")
+                                for k in ["title", "url", "content"] # Score is optional for logging but good to have
+                            ) or current_score < min_score_threshold:
+                                logger.warning(
+                                    f"Incomplete result or score ({current_score}) below threshold ({min_score_threshold}) from Tavily API. Skipping result: {result.get('title', 'N/A')}"
+                                )
                                 continue
                             processed_results.append(
                                 {
                                     "title": result["title"],
                                     "url": result["url"],
                                     "content": result["content"],
-                                    "score": result["score"],
+                                    "score": current_score,
                                 }
                             )
                         except Exception as e:
                             logger.error(f"Error processing Tavily result: {e}")
                             continue
-
+                    
+                    logger.debug(f"Returning {len(processed_results)} results from Tavily after score filtering (threshold: {min_score_threshold}).")
                     return processed_results
 
             except aiohttp.ClientError as e:
