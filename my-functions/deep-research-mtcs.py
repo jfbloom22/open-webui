@@ -376,13 +376,23 @@ class Pipe:
         async with aiohttp.ClientSession() as session:
             try:
                 url = "https://api.tavily.com/search"
-                headers = {"Content-Type": "application/json"}
-                data = {
-                    "api_key": self.valves.TAVILY_API_KEY,
-                    "query": query,
-                    "max_results": self.valves.MAX_SEARCH_RESULTS,
-                    "search_depth": "advanced",
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.valves.TAVILY_API_KEY}"
                 }
+                data = {
+                    "query": query,
+                    "search_depth": "basic",
+                    "topic": "general",
+                    "max_results": self.valves.MAX_SEARCH_RESULTS,
+                    "include_answer": False,
+                    "include_raw_content": False,
+                    "include_images": False,
+                    "include_image_descriptions": False,
+                    "include_domains": [],
+                    "exclude_domains": [],
+                }
+                logger.debug(f"Tavily API request data: {data}")
                 async with session.post(url, headers=headers, json=data) as response:
                     logger.debug(f"Tavily API response status: {response.status}")
                     if response.status != 200:
