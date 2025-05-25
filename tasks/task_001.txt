@@ -1,0 +1,95 @@
+# Task ID: 1
+# Title: Implement iOS Device Detection Utility
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Create a simple utility function to detect iOS devices on the client-side.
+# Details:
+Implement a JavaScript utility function that detects iOS devices by checking if the user agent contains 'iPhone', 'iPad', or 'iPod'. No external libraries are needed for this implementation.
+
+# Test Strategy:
+Create simple unit tests for the detection function using various User-Agent strings. Test on actual iOS devices to ensure accuracy.
+
+# Subtasks:
+## 1. Research iOS Device Detection Methods [done]
+### Dependencies: None
+### Description: Investigate basic methods for detecting iOS devices using JavaScript and user agent strings.
+### Details:
+Focus on simple user agent string checking for 'iPhone', 'iPad', and 'iPod' terms. Document the approach and any potential limitations.
+<info added on 2025-05-25T15:04:22.659Z>
+Research findings: Discovered existing mobile detection in the codebase at src/lib/components/chat/MessageInput/InputMenu.svelte that uses regex pattern /android|iphone|ipad|ipod|windows phone/i.test(userAgent). For our iOS-specific detection, we'll focus exclusively on iOS devices (iPhone, iPad, iPod) using a similar regex approach but limited to iOS devices only. This will maintain consistency with existing codebase patterns while fulfilling our specific iOS detection requirements.
+</info added on 2025-05-25T15:04:22.659Z>
+
+## 2. Implement Basic iOS Detection Function [done]
+### Dependencies: 1.1
+### Description: Create a simple JavaScript function that checks the user agent string for iOS device identifiers.
+### Details:
+Write a function that checks if navigator.userAgent contains 'iPhone', 'iPad', or 'iPod' strings. Return a boolean indicating whether the device is running iOS.
+<info added on 2025-05-25T15:08:33.674Z>
+Implemented the iOS detection function in src/lib/utils/index.ts:
+
+```typescript
+export const detectIOS = (): boolean => {
+	if (typeof navigator === 'undefined') {
+		return false;
+	}
+	
+	const userAgent = navigator.userAgent || '';
+	return /iPad|iPhone|iPod/.test(userAgent);
+};
+```
+
+The implementation includes:
+- Boolean return value indicating iOS device detection
+- Server-side rendering safety with navigator undefined check
+- Regex pattern matching for iPad, iPhone, and iPod in user agent
+- Consistency with existing mobile detection patterns
+- Zero external dependencies
+</info added on 2025-05-25T15:08:33.674Z>
+
+## 3. Document the Utility Function [done]
+### Dependencies: 1.2
+### Description: Write simple documentation for the iOS detection utility function.
+### Details:
+Document the function's purpose, implementation details, usage examples, and any limitations of the user agent string approach.
+<info added on 2025-05-25T15:11:18.232Z>
+/**
+ * Detects if the current device is running iOS (iPhone, iPad, iPod)
+ * by examining the user agent string in the browser.
+ * 
+ * @returns {boolean} True if the device is running iOS, false otherwise
+ * 
+ * @example
+ * // Check if user is on iOS device
+ * if (detectIOS()) {
+ *   // Show iOS-specific features or messaging
+ *   showIOSDownloadButton();
+ * } else {
+ *   // Show default experience
+ *   showGenericExperience();
+ * }
+ * 
+ * @note Limitations:
+ * - This detection relies on user agent strings which can be spoofed
+ * - Will not work in server-side rendering contexts where window/navigator is unavailable
+ * - May require updates as Apple changes their user agent string format
+ */
+</info added on 2025-05-25T15:11:18.232Z>
+
+## 4. Test the iOS Detection Function [done]
+### Dependencies: 1.2
+### Description: Create basic tests to verify the iOS detection function works correctly.
+### Details:
+Write tests that verify the function correctly identifies iOS devices and doesn't produce false positives for non-iOS devices.
+<info added on 2025-05-25T15:30:05.447Z>
+Created comprehensive test suite for the iOS detection function in src/lib/utils/detectIOS.test.ts. The test suite includes:
+
+- Tests for iPhone, iPad, and iPod user agents (should return true)
+- Tests for Android, Windows, and macOS user agents (should return false)
+- Test for server-side rendering scenario (navigator undefined)
+- Test for empty user agent string
+- Test for case insensitivity
+
+The tests cover all major scenarios and edge cases for the iOS detection function. The function is ready for use in the download handling implementation.
+</info added on 2025-05-25T15:30:05.447Z>
+

@@ -1,0 +1,164 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Implement iOS Device Detection Utility",
+      "description": "Create a simple utility function to detect iOS devices on the client-side.",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "details": "Implement a JavaScript utility function that detects iOS devices by checking if the user agent contains 'iPhone', 'iPad', or 'iPod'. No external libraries are needed for this implementation.",
+      "testStrategy": "Create simple unit tests for the detection function using various User-Agent strings. Test on actual iOS devices to ensure accuracy.",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Research iOS Device Detection Methods",
+          "description": "Investigate basic methods for detecting iOS devices using JavaScript and user agent strings.",
+          "dependencies": [],
+          "details": "Focus on simple user agent string checking for 'iPhone', 'iPad', and 'iPod' terms. Document the approach and any potential limitations.\n<info added on 2025-05-25T15:04:22.659Z>\nResearch findings: Discovered existing mobile detection in the codebase at src/lib/components/chat/MessageInput/InputMenu.svelte that uses regex pattern /android|iphone|ipad|ipod|windows phone/i.test(userAgent). For our iOS-specific detection, we'll focus exclusively on iOS devices (iPhone, iPad, iPod) using a similar regex approach but limited to iOS devices only. This will maintain consistency with existing codebase patterns while fulfilling our specific iOS detection requirements.\n</info added on 2025-05-25T15:04:22.659Z>",
+          "status": "done",
+          "testStrategy": "Compile a list of iOS user-agent strings to test against."
+        },
+        {
+          "id": 2,
+          "title": "Implement Basic iOS Detection Function",
+          "description": "Create a simple JavaScript function that checks the user agent string for iOS device identifiers.",
+          "dependencies": [
+            1
+          ],
+          "details": "Write a function that checks if navigator.userAgent contains 'iPhone', 'iPad', or 'iPod' strings. Return a boolean indicating whether the device is running iOS.\n<info added on 2025-05-25T15:08:33.674Z>\nImplemented the iOS detection function in src/lib/utils/index.ts:\n\n```typescript\nexport const detectIOS = (): boolean => {\n\tif (typeof navigator === 'undefined') {\n\t\treturn false;\n\t}\n\t\n\tconst userAgent = navigator.userAgent || '';\n\treturn /iPad|iPhone|iPod/.test(userAgent);\n};\n```\n\nThe implementation includes:\n- Boolean return value indicating iOS device detection\n- Server-side rendering safety with navigator undefined check\n- Regex pattern matching for iPad, iPhone, and iPod in user agent\n- Consistency with existing mobile detection patterns\n- Zero external dependencies\n</info added on 2025-05-25T15:08:33.674Z>",
+          "status": "done",
+          "testStrategy": "Test the function with various user agent strings from different iOS and non-iOS devices."
+        },
+        {
+          "id": 3,
+          "title": "Document the Utility Function",
+          "description": "Write simple documentation for the iOS detection utility function.",
+          "dependencies": [
+            2
+          ],
+          "details": "Document the function's purpose, implementation details, usage examples, and any limitations of the user agent string approach.\n<info added on 2025-05-25T15:11:18.232Z>\n/**\n * Detects if the current device is running iOS (iPhone, iPad, iPod)\n * by examining the user agent string in the browser.\n * \n * @returns {boolean} True if the device is running iOS, false otherwise\n * \n * @example\n * // Check if user is on iOS device\n * if (detectIOS()) {\n *   // Show iOS-specific features or messaging\n *   showIOSDownloadButton();\n * } else {\n *   // Show default experience\n *   showGenericExperience();\n * }\n * \n * @note Limitations:\n * - This detection relies on user agent strings which can be spoofed\n * - Will not work in server-side rendering contexts where window/navigator is unavailable\n * - May require updates as Apple changes their user agent string format\n */\n</info added on 2025-05-25T15:11:18.232Z>",
+          "status": "done",
+          "testStrategy": "Review documentation for clarity and completeness."
+        },
+        {
+          "id": 4,
+          "title": "Test the iOS Detection Function",
+          "description": "Create basic tests to verify the iOS detection function works correctly.",
+          "dependencies": [
+            2
+          ],
+          "details": "Write tests that verify the function correctly identifies iOS devices and doesn't produce false positives for non-iOS devices.\n<info added on 2025-05-25T15:30:05.447Z>\nCreated comprehensive test suite for the iOS detection function in src/lib/utils/detectIOS.test.ts. The test suite includes:\n\n- Tests for iPhone, iPad, and iPod user agents (should return true)\n- Tests for Android, Windows, and macOS user agents (should return false)\n- Test for server-side rendering scenario (navigator undefined)\n- Test for empty user agent string\n- Test for case insensitivity\n\nThe tests cover all major scenarios and edge cases for the iOS detection function. The function is ready for use in the download handling implementation.\n</info added on 2025-05-25T15:30:05.447Z>",
+          "status": "done",
+          "testStrategy": "Test with a variety of user agent strings and if possible, on actual iOS and non-iOS devices."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Enhance Backend File Serving Endpoints",
+      "description": "Modify existing file serving endpoints to include iOS-specific headers and improve Content-Disposition formatting.",
+      "status": "pending",
+      "dependencies": [
+        1
+      ],
+      "priority": "high",
+      "details": "Update the file serving logic in 'backend/open_webui/routers/files.py'. Add essential iOS-specific headers and implement proper Content-Disposition header formatting. Keep changes minimal and focused on these two aspects without introducing new libraries or major refactoring.",
+      "testStrategy": "Create simple tests that verify the presence and correctness of new headers. Test with common file types to ensure proper Content-Disposition handling.",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Implement RFC 6266 Content-Disposition Header Formatting",
+          "description": "Update the file serving endpoints to properly format Content-Disposition headers according to RFC 6266 standard",
+          "dependencies": [],
+          "details": "Modify the file serving logic in 'backend/open_webui/routers/files.py' to implement proper Content-Disposition header formatting following RFC 6266. Include both 'inline' and 'attachment' disposition types as appropriate. Ensure proper handling of filenames with special characters using the filename* parameter with UTF-8 encoding when necessary.",
+          "status": "pending",
+          "testStrategy": "Test with filenames containing special characters, spaces, and non-ASCII characters to verify proper encoding and browser compatibility"
+        },
+        {
+          "id": 2,
+          "title": "Add Essential iOS-Specific Headers",
+          "description": "Implement key iOS-specific headers to improve file handling on Apple mobile devices",
+          "dependencies": [],
+          "details": "Add only the most essential iOS-specific headers to the file serving endpoints in 'backend/open_webui/routers/files.py'. Focus on 'X-Apple-Mobile-Web-App-Capable' and possibly one other critical header that improves iOS compatibility. Keep changes minimal and straightforward.",
+          "status": "pending",
+          "testStrategy": "Test file downloads on iOS devices to ensure basic compatibility"
+        },
+        {
+          "id": 6,
+          "title": "Basic Testing of Header Implementation",
+          "description": "Create simple tests for the new headers",
+          "dependencies": [
+            1,
+            2
+          ],
+          "details": "Develop basic tests to verify that the Content-Disposition headers and iOS-specific headers are being correctly added to responses. Keep testing focused and minimal.",
+          "status": "pending",
+          "testStrategy": "Create simple tests that verify headers are present and formatted correctly in responses."
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Update Frontend Download Handling",
+      "description": "Modify frontend components to use platform-specific download handling based on device detection.",
+      "status": "pending",
+      "dependencies": [
+        1,
+        2
+      ],
+      "priority": "high",
+      "details": "Update relevant React components to use the iOS detection utility. Implement a simple workaround for iOS devices by opening the download URL in a new tab/window. For non-iOS devices, maintain the current download method. Keep changes minimal with no new UI components or complex error handling.",
+      "testStrategy": "Create basic unit tests to verify iOS detection and the conditional download behavior. Test on actual iOS and non-iOS devices to confirm the workaround functions correctly.",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Implement iOS Detection Utility Integration",
+          "description": "Integrate the iOS detection utility into the relevant React components to accurately identify iOS devices.",
+          "dependencies": [],
+          "details": "Import and configure the iOS detection utility in the download component files. Create a simple helper function that returns a boolean value indicating whether the current device is running iOS.",
+          "status": "pending",
+          "testStrategy": "Test the detection utility on various browsers and devices to verify accurate iOS detection."
+        },
+        {
+          "id": 2,
+          "title": "Implement Simple iOS Download Workaround",
+          "description": "Create a simple workaround for iOS devices by opening the download URL in a new tab/window.",
+          "dependencies": [
+            1
+          ],
+          "details": "Modify the download button click handler to check if the device is iOS. For iOS devices, implement the workaround of opening the download URL in a new tab/window using window.open() or similar approach. For non-iOS devices, maintain the current download method.",
+          "status": "pending",
+          "testStrategy": "Test the workaround on iOS devices to verify downloads work correctly. Confirm that non-iOS devices still use the original download method."
+        },
+        {
+          "id": 3,
+          "title": "Update Component Documentation",
+          "description": "Add minimal documentation to explain the iOS detection and download workaround.",
+          "dependencies": [
+            1,
+            2
+          ],
+          "details": "Add brief comments to document the iOS detection and download workaround implementation. Ensure the code is clear and maintainable for future developers.",
+          "status": "pending",
+          "testStrategy": "Review documentation for clarity and completeness."
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Manual iOS Download Testing",
+      "description": "Perform manual testing on actual iOS devices to verify that the file download functionality works correctly after implementing the iOS-specific fixes.",
+      "details": "This task involves testing the file download functionality on real iOS devices to ensure the implemented fixes work as expected. The tester should:\n\n1. Prepare at least one iOS device (iPhone or iPad) with the latest iOS version\n2. Ensure the test environment is properly deployed with all the iOS download fixes implemented\n3. Test various file types (PDF, images, documents, etc.) to ensure they all download correctly\n4. Verify that the Content-Disposition headers are properly formatted by checking if files download with correct filenames\n5. Test edge cases such as:\n   - Files with special characters in filenames\n   - Very large files\n   - Different file formats\n6. Compare the download experience with non-iOS devices to ensure platform-specific handling works correctly\n7. Document any issues encountered during testing with screenshots and detailed reproduction steps\n8. Verify that no regressions were introduced for non-iOS platforms\n\nThe testing should focus on user experience rather than code inspection, ensuring that from an end-user perspective, downloads work seamlessly on iOS devices.",
+      "testStrategy": "1. Create a test matrix covering different iOS devices (iPhone and iPad if possible) and iOS versions (at least the latest and one previous version)\n2. For each device in the test matrix:\n   - Access the application through Safari browser\n   - Navigate to file download sections\n   - Attempt to download at least 5 different file types (PDF, DOCX, JPG, PNG, ZIP)\n   - Verify each file downloads successfully\n   - Confirm downloaded files can be opened correctly\n   - Check that filenames are preserved correctly\n3. Document test results with:\n   - Screenshots of successful downloads\n   - Screenshots of file previews after download\n   - Notes on any unexpected behavior\n4. Test the same scenarios on a non-iOS device to verify platform-specific handling works correctly\n5. Create a test report summarizing findings, including:\n   - Pass/fail status for each test case\n   - Any issues discovered\n   - Recommendations for further improvements\n6. Share the test report with the development team for review",
+      "status": "pending",
+      "dependencies": [
+        1,
+        2,
+        4
+      ],
+      "priority": "high",
+      "subtasks": []
+    }
+  ]
+}

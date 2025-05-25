@@ -1,0 +1,42 @@
+# Task ID: 5
+# Title: Manual iOS Download Testing
+# Status: pending
+# Dependencies: 1, 2, 4
+# Priority: high
+# Description: Perform manual testing on actual iOS devices to verify that the file download functionality works correctly after implementing the iOS-specific fixes.
+# Details:
+This task involves testing the file download functionality on real iOS devices to ensure the implemented fixes work as expected. The tester should:
+
+1. Prepare at least one iOS device (iPhone or iPad) with the latest iOS version
+2. Ensure the test environment is properly deployed with all the iOS download fixes implemented
+3. Test various file types (PDF, images, documents, etc.) to ensure they all download correctly
+4. Verify that the Content-Disposition headers are properly formatted by checking if files download with correct filenames
+5. Test edge cases such as:
+   - Files with special characters in filenames
+   - Very large files
+   - Different file formats
+6. Compare the download experience with non-iOS devices to ensure platform-specific handling works correctly
+7. Document any issues encountered during testing with screenshots and detailed reproduction steps
+8. Verify that no regressions were introduced for non-iOS platforms
+
+The testing should focus on user experience rather than code inspection, ensuring that from an end-user perspective, downloads work seamlessly on iOS devices.
+
+# Test Strategy:
+1. Create a test matrix covering different iOS devices (iPhone and iPad if possible) and iOS versions (at least the latest and one previous version)
+2. For each device in the test matrix:
+   - Access the application through Safari browser
+   - Navigate to file download sections
+   - Attempt to download at least 5 different file types (PDF, DOCX, JPG, PNG, ZIP)
+   - Verify each file downloads successfully
+   - Confirm downloaded files can be opened correctly
+   - Check that filenames are preserved correctly
+3. Document test results with:
+   - Screenshots of successful downloads
+   - Screenshots of file previews after download
+   - Notes on any unexpected behavior
+4. Test the same scenarios on a non-iOS device to verify platform-specific handling works correctly
+5. Create a test report summarizing findings, including:
+   - Pass/fail status for each test case
+   - Any issues discovered
+   - Recommendations for further improvements
+6. Share the test report with the development team for review

@@ -1,0 +1,31 @@
+# Task ID: 2
+# Title: Enhance Backend File Serving Endpoints
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Modify existing file serving endpoints to include iOS-specific headers and improve Content-Disposition formatting.
+# Details:
+Update the file serving logic in 'backend/open_webui/routers/files.py'. Add essential iOS-specific headers and implement proper Content-Disposition header formatting. Keep changes minimal and focused on these two aspects without introducing new libraries or major refactoring.
+
+# Test Strategy:
+Create simple tests that verify the presence and correctness of new headers. Test with common file types to ensure proper Content-Disposition handling.
+
+# Subtasks:
+## 1. Implement RFC 6266 Content-Disposition Header Formatting [pending]
+### Dependencies: None
+### Description: Update the file serving endpoints to properly format Content-Disposition headers according to RFC 6266 standard
+### Details:
+Modify the file serving logic in 'backend/open_webui/routers/files.py' to implement proper Content-Disposition header formatting following RFC 6266. Include both 'inline' and 'attachment' disposition types as appropriate. Ensure proper handling of filenames with special characters using the filename* parameter with UTF-8 encoding when necessary.
+
+## 2. Add Essential iOS-Specific Headers [pending]
+### Dependencies: None
+### Description: Implement key iOS-specific headers to improve file handling on Apple mobile devices
+### Details:
+Add only the most essential iOS-specific headers to the file serving endpoints in 'backend/open_webui/routers/files.py'. Focus on 'X-Apple-Mobile-Web-App-Capable' and possibly one other critical header that improves iOS compatibility. Keep changes minimal and straightforward.
+
+## 6. Basic Testing of Header Implementation [pending]
+### Dependencies: 2.1, 2.2
+### Description: Create simple tests for the new headers
+### Details:
+Develop basic tests to verify that the Content-Disposition headers and iOS-specific headers are being correctly added to responses. Keep testing focused and minimal.
+

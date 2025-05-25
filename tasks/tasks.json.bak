@@ -1,0 +1,321 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Implement iOS Device Detection Utility",
+      "description": "Create a utility function to detect iOS devices and specific browsers on the client-side.",
+      "details": "Implement a JavaScript utility function that detects iOS devices and specific browsers (Safari, Chrome, Firefox). Use the latest User-Agent parsing techniques and feature detection. Consider using a library like 'ua-parser-js' (version 1.0.35 or later) for robust device detection. Implement fallback mechanisms for edge cases.",
+      "testStrategy": "Create unit tests for the detection function using various User-Agent strings and mock browser environments. Test on actual iOS devices with different browsers to ensure accuracy.",
+      "priority": "high",
+      "dependencies": [],
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Research iOS Device and Browser Detection Methods",
+          "description": "Investigate current best practices for detecting iOS devices and distinguishing between Safari, Chrome, and Firefox browsers using JavaScript.",
+          "dependencies": [],
+          "details": "Review documentation and articles on device and browser detection, focusing on both User-Agent parsing and feature detection techniques. Identify the strengths and weaknesses of each approach.",
+          "status": "pending",
+          "testStrategy": "Compile a summary of detection methods and validate findings against up-to-date browser/device user-agent strings."
+        },
+        {
+          "id": 2,
+          "title": "Integrate 'ua-parser-js' Library for User-Agent Parsing",
+          "description": "Set up and configure the 'ua-parser-js' library (version 1.0.35 or later) to parse User-Agent strings for device and browser identification.",
+          "dependencies": [
+            1
+          ],
+          "details": "Install the library, import it into the project, and create a basic function that uses it to extract device and browser information from the User-Agent string.",
+          "status": "pending",
+          "testStrategy": "Test the parser with a variety of User-Agent strings representing different iOS devices and browsers."
+        },
+        {
+          "id": 3,
+          "title": "Implement Feature Detection for Edge Cases",
+          "description": "Develop additional feature detection logic to handle scenarios where User-Agent parsing is unreliable or spoofed.",
+          "dependencies": [
+            2
+          ],
+          "details": "Use JavaScript APIs such as window.matchMedia and navigator properties to detect device capabilities and browser-specific features.",
+          "status": "pending",
+          "testStrategy": "Simulate edge cases (e.g., modified User-Agent strings) and verify that feature detection provides accurate fallback results."
+        },
+        {
+          "id": 4,
+          "title": "Combine Detection Methods into a Unified Utility Function",
+          "description": "Create a robust utility function that combines User-Agent parsing and feature detection to reliably identify iOS devices and specific browsers.",
+          "dependencies": [
+            2,
+            3
+          ],
+          "details": "Design the function to prioritize User-Agent parsing but gracefully fall back to feature detection when necessary. Ensure the function returns clear, structured results.",
+          "status": "pending",
+          "testStrategy": "Run the utility across a matrix of devices and browsers to confirm accurate detection in all scenarios."
+        },
+        {
+          "id": 5,
+          "title": "Document and Test the Utility Function",
+          "description": "Write comprehensive documentation and automated tests for the utility function, covering typical and edge-case scenarios.",
+          "dependencies": [
+            4
+          ],
+          "details": "Provide usage examples, describe detection logic, and implement unit tests to ensure ongoing reliability as browser/device characteristics evolve.",
+          "status": "pending",
+          "testStrategy": "Execute all tests in multiple environments and review documentation for clarity and completeness."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Enhance Backend File Serving Endpoints",
+      "description": "Modify existing file serving endpoints to include iOS-specific headers and improve Content-Disposition formatting.",
+      "details": "Update the file serving logic in 'backend/open_webui/routers/files.py'. Add iOS-specific headers like 'X-Apple-Mobile-Web-App-Capable'. Implement proper Content-Disposition header formatting using the RFC 6266 standard. Use the 'python-magic' library (version 0.4.27 or later) for accurate MIME type detection. Ensure Content-Length headers are set for all downloads.",
+      "testStrategy": "Create integration tests that verify the presence and correctness of new headers. Test with various file types and sizes to ensure proper Content-Disposition and MIME type handling.",
+      "priority": "high",
+      "dependencies": [
+        1
+      ],
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Implement RFC 6266 Content-Disposition Header Formatting",
+          "description": "Update the file serving endpoints to properly format Content-Disposition headers according to RFC 6266 standard",
+          "dependencies": [],
+          "details": "Modify the file serving logic in 'backend/open_webui/routers/files.py' to implement proper Content-Disposition header formatting following RFC 6266. Include both 'inline' and 'attachment' disposition types as appropriate. Ensure proper handling of filenames with special characters using the filename* parameter with UTF-8 encoding when necessary.",
+          "status": "pending",
+          "testStrategy": "Test with filenames containing special characters, spaces, and non-ASCII characters to verify proper encoding and browser compatibility"
+        },
+        {
+          "id": 2,
+          "title": "Add iOS-Specific Headers for Mobile Compatibility",
+          "description": "Implement iOS-specific headers to improve file handling on Apple mobile devices",
+          "dependencies": [],
+          "details": "Add iOS-specific headers like 'X-Apple-Mobile-Web-App-Capable' to the file serving endpoints in 'backend/open_webui/routers/files.py'. Research and implement any additional iOS-specific headers that may improve the user experience when downloading or viewing files on iOS devices.",
+          "status": "pending",
+          "testStrategy": "Test file downloads and inline viewing on various iOS devices and versions to ensure proper functionality"
+        },
+        {
+          "id": 3,
+          "title": "Integrate Python-Magic Library for MIME Type Detection",
+          "description": "Implement accurate MIME type detection using the python-magic library (version 0.4.27 or later)",
+          "dependencies": [],
+          "details": "Update the file serving logic to use the python-magic library for accurate MIME type detection. Ensure the library version is 0.4.27 or later. Implement proper Content-Type header setting based on the detected MIME type to ensure browsers handle files correctly.",
+          "status": "pending",
+          "testStrategy": "Test with various file types including common document formats, images, videos, and uncommon file types to verify accurate MIME type detection"
+        },
+        {
+          "id": 4,
+          "title": "Ensure Content-Length Headers for All Downloads",
+          "description": "Modify file serving endpoints to include Content-Length headers for all file downloads",
+          "dependencies": [
+            1,
+            3
+          ],
+          "details": "Update the file serving logic to calculate and set the Content-Length header for all file downloads. This ensures proper download progress indication in browsers and improves the overall download experience. Implement efficient file size calculation methods that work with various file storage backends.",
+          "status": "pending",
+          "testStrategy": "Test with files of various sizes to ensure Content-Length headers are correctly set and download progress is properly displayed in browsers"
+        },
+        {
+          "id": 5,
+          "title": "Implement Comprehensive Testing and Documentation",
+          "description": "Create tests and documentation for the enhanced file serving endpoints",
+          "dependencies": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "details": "Develop comprehensive tests for the enhanced file serving endpoints, covering all implemented features including Content-Disposition formatting, iOS-specific headers, MIME type detection, and Content-Length headers. Update the API documentation to reflect the changes and provide examples of the new header formats and their usage.",
+          "status": "pending",
+          "testStrategy": "Create unit tests and integration tests covering all implemented features. Test with various browsers and devices to ensure cross-platform compatibility."
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Implement Dedicated iOS Download Endpoint",
+      "description": "Create a new backend endpoint specifically optimized for iOS file downloads with proper streaming support.",
+      "details": "Implement a new endpoint in 'backend/open_webui/routers/files.py' that handles iOS-specific download requirements. Use FastAPI's StreamingResponse for efficient file streaming. Implement proper error handling and logging. Consider using the 'aiofiles' library (version 23.1.0 or later) for asynchronous file operations.",
+      "testStrategy": "Develop comprehensive integration tests for the new endpoint. Test with various file sizes to ensure proper streaming. Verify download success on iOS devices and simulate network interruptions to test resilience.",
+      "priority": "medium",
+      "dependencies": [
+        2
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 4,
+      "title": "Update Frontend Download Handling",
+      "description": "Modify frontend components to use platform-specific download handling based on device detection.",
+      "details": "Update relevant React components to use the iOS detection utility. Implement conditional logic to use the appropriate download method based on the detected platform. For iOS, use the new dedicated endpoint. Implement proper error handling and user feedback mechanisms. Consider using the 'axios' library (version 1.4.0 or later) for robust HTTP requests.",
+      "testStrategy": "Create unit tests for the updated components. Implement end-to-end tests using a tool like Cypress (version 12.0.0 or later) to verify download behavior across different simulated devices and browsers.",
+      "priority": "high",
+      "dependencies": [
+        1,
+        2,
+        3
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 5,
+      "title": "Enhance Download UI Components",
+      "description": "Improve existing download UI components to provide better feedback and handle iOS-specific scenarios.",
+      "details": "Update UI components to show download progress, especially important for iOS where downloads might take longer. Implement retry mechanisms for failed downloads. Use React hooks for state management. Consider using a UI library like 'Material-UI' (version 5.13.0 or later) for consistent and responsive design.",
+      "testStrategy": "Develop unit tests for UI components. Conduct usability testing on various iOS devices to ensure a smooth user experience. Use React Testing Library for component testing.",
+      "priority": "medium",
+      "dependencies": [
+        4
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 6,
+      "title": "Implement Fallback Mechanisms",
+      "description": "Create fallback solutions for scenarios where direct downloads fail on iOS devices.",
+      "details": "Implement a fallback system that attempts alternative download methods if the primary method fails. This could include using data URLs for smaller files or providing instructions for manual download. Use a state machine pattern to manage different download attempts. Consider using the 'xstate' library (version 4.37.0 or later) for complex state management.",
+      "testStrategy": "Create unit tests for the fallback logic. Simulate various failure scenarios and verify that the appropriate fallback method is used. Conduct end-to-end tests on iOS devices to ensure fallback mechanisms work in real-world conditions.",
+      "priority": "medium",
+      "dependencies": [
+        4,
+        5
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 7,
+      "title": "Enhance Action Response Format",
+      "description": "Modify the Action/Function response format to include multiple download options suitable for different platforms.",
+      "details": "Update the Action response schema to include fields for different download URLs (e.g., iOS-specific, desktop, fallback). Ensure backward compatibility with existing Actions. Use JSON Schema (draft-07 or later) for clear response format documentation. Implement versioning for the response format to allow future enhancements.",
+      "testStrategy": "Create unit tests for the new response format. Verify that existing Actions continue to work with the updated format. Test integration with frontend components to ensure proper handling of the new format.",
+      "priority": "medium",
+      "dependencies": [
+        2,
+        3
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 8,
+      "title": "Implement Large File Streaming Support",
+      "description": "Enhance backend and frontend to support efficient streaming of large files, especially important for iOS.",
+      "details": "Implement chunked transfer encoding on the backend for large files. Use FastAPI's StreamingResponse with appropriate chunk sizes. On the frontend, implement progressive download using the Streams API. Consider using the 'web-streams-polyfill' (version 3.2.1 or later) for broader browser support.",
+      "testStrategy": "Develop integration tests for large file downloads. Measure memory usage and download times for various file sizes. Test on low-end iOS devices to ensure performance under constrained conditions.",
+      "priority": "low",
+      "dependencies": [
+        2,
+        3,
+        4
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 9,
+      "title": "Implement Cross-Origin Resource Sharing (CORS) Enhancements",
+      "description": "Update CORS settings to ensure compatibility with stricter iOS security policies.",
+      "details": "Review and update CORS settings in the backend to comply with iOS security requirements. Implement proper CORS headers for file download endpoints. Use FastAPI's CORSMiddleware with carefully configured settings. Consider implementing a separate CORS policy for iOS-specific endpoints if necessary.",
+      "testStrategy": "Create integration tests to verify CORS behavior. Test cross-origin requests from different domains and ensure proper handling on iOS devices. Use tools like CORS-test.io to validate CORS configurations.",
+      "priority": "high",
+      "dependencies": [
+        2,
+        3
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 10,
+      "title": "Implement Caching Mechanisms",
+      "description": "Develop intelligent caching strategies to improve download performance and reduce server load.",
+      "details": "Implement HTTP caching headers (ETag, Cache-Control) for downloadable files. Use Redis (version 7.0.0 or later) for server-side caching of frequently downloaded files. Implement browser caching strategies using Service Workers. Consider using the 'workbox' library (version 7.0.0 or later) for advanced Service Worker caching strategies.",
+      "testStrategy": "Develop unit tests for caching logic. Measure download times with and without caching to quantify improvements. Test cache invalidation scenarios to ensure fresh content is served when needed.",
+      "priority": "low",
+      "dependencies": [
+        2,
+        3,
+        8
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 11,
+      "title": "Update Action/Function Documentation",
+      "description": "Revise documentation for Action/Function developers to include guidance on the new download capabilities.",
+      "details": "Update the Action development guide to explain the new response format for downloads. Provide examples of how to generate iOS-compatible download URLs. Include best practices for file generation in Actions. Use Markdown for documentation and consider using a tool like 'Docusaurus' (version 2.4.1 or later) for maintaining a comprehensive developer documentation site.",
+      "testStrategy": "Conduct peer reviews of the updated documentation. Create a feedback mechanism for developers to report unclear or missing information. Test the documentation by having new developers implement sample Actions using only the provided guide.",
+      "priority": "medium",
+      "dependencies": [
+        7
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 12,
+      "title": "Implement Comprehensive Logging and Monitoring",
+      "description": "Enhance logging and monitoring systems to track download success rates and identify issues across different platforms.",
+      "details": "Implement detailed logging for download attempts, successes, and failures. Use structured logging with a library like 'structlog' (version 23.1.0 or later). Integrate with a monitoring solution like Prometheus and Grafana for real-time visibility. Create dashboards to track download success rates by platform, file type, and size.",
+      "testStrategy": "Verify log output for various download scenarios. Create automated alerts for abnormal download patterns. Conduct a simulated incident response to ensure monitoring tools provide necessary insights.",
+      "priority": "medium",
+      "dependencies": [
+        2,
+        3,
+        4
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 13,
+      "title": "Develop Cross-Platform Download Test Suite",
+      "description": "Create a comprehensive test suite to verify download functionality across multiple platforms and browsers.",
+      "details": "Develop an automated test suite using a tool like Selenium WebDriver (version 4.10.0 or later) or Playwright (version 1.35.0 or later). Include tests for various file types, sizes, and download scenarios. Implement tests for both desktop and mobile browsers, with a focus on iOS Safari, Chrome, and Firefox. Use BrowserStack or a similar service for access to real iOS devices.",
+      "testStrategy": "Run the test suite as part of the CI/CD pipeline. Conduct manual verification on physical iOS devices for critical scenarios. Regularly update the test suite to cover new iOS versions and browser updates.",
+      "priority": "high",
+      "dependencies": [
+        4,
+        5,
+        6
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 14,
+      "title": "Implement Feature Flags for Gradual Rollout",
+      "description": "Develop a feature flag system to enable gradual rollout and easy rollback of new download functionality.",
+      "details": "Implement a feature flag system using a library like 'flagsmith' (version 3.17.0 or later). Create flags for major features like iOS-specific download handling. Implement server-side and client-side feature flag checks. Develop an admin interface for easy management of feature flags.",
+      "testStrategy": "Create unit tests for feature flag logic. Conduct integration tests to ensure proper behavior when flags are toggled. Simulate partial rollouts and rollbacks to verify system stability.",
+      "priority": "medium",
+      "dependencies": [
+        4,
+        7
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 15,
+      "title": "Conduct User Acceptance Testing and Gather Feedback",
+      "description": "Organize user acceptance testing sessions and implement feedback collection mechanisms for the new download functionality.",
+      "details": "Develop a UAT plan covering various user scenarios. Recruit a diverse group of iOS users for testing. Implement in-app feedback mechanisms using a tool like 'feedback-fish' (version 1.0.0 or later). Create surveys for detailed user feedback. Analyze app store ratings and reviews for iOS-specific feedback.",
+      "testStrategy": "Conduct moderated UAT sessions with screen recording. Analyze quantitative metrics like task completion rates and qualitative feedback. Iterate on the implementation based on user feedback and performance metrics.",
+      "priority": "high",
+      "dependencies": [
+        13,
+        14
+      ],
+      "status": "pending",
+      "subtasks": []
+    }
+  ]
+}

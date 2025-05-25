@@ -1,0 +1,31 @@
+# Task ID: 4
+# Title: Update Frontend Download Handling
+# Status: pending
+# Dependencies: 1, 2
+# Priority: high
+# Description: Modify frontend components to use platform-specific download handling based on device detection.
+# Details:
+Update relevant React components to use the iOS detection utility. Implement a simple workaround for iOS devices by opening the download URL in a new tab/window. For non-iOS devices, maintain the current download method. Keep changes minimal with no new UI components or complex error handling.
+
+# Test Strategy:
+Create basic unit tests to verify iOS detection and the conditional download behavior. Test on actual iOS and non-iOS devices to confirm the workaround functions correctly.
+
+# Subtasks:
+## 1. Implement iOS Detection Utility Integration [pending]
+### Dependencies: None
+### Description: Integrate the iOS detection utility into the relevant React components to accurately identify iOS devices.
+### Details:
+Import and configure the iOS detection utility in the download component files. Create a simple helper function that returns a boolean value indicating whether the current device is running iOS.
+
+## 2. Implement Simple iOS Download Workaround [pending]
+### Dependencies: 4.1
+### Description: Create a simple workaround for iOS devices by opening the download URL in a new tab/window.
+### Details:
+Modify the download button click handler to check if the device is iOS. For iOS devices, implement the workaround of opening the download URL in a new tab/window using window.open() or similar approach. For non-iOS devices, maintain the current download method.
+
+## 3. Update Component Documentation [pending]
+### Dependencies: 4.1, 4.2
+### Description: Add minimal documentation to explain the iOS detection and download workaround.
+### Details:
+Add brief comments to document the iOS detection and download workaround implementation. Ensure the code is clear and maintainable for future developers.
+
