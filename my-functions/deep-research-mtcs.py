@@ -138,7 +138,7 @@ class MCTS:
 
     async def expand(self, node: Node, depth):
         await self.pipe.progress(f"Exploring research paths from {node.id}...")
-        await self.pipe.emit_replace(self.mermaid(node))
+        await self.pipe.emit_mermaid_diagram(self.mermaid(node))
         temperature = self.define_temperature(
             depth,
             node.score,
@@ -148,7 +148,7 @@ class MCTS:
             self.pipe.valves.DINAMYC_TEMPERATURE_DECAY,
         )
         for i in range(self.breadth):
-            await self.pipe.emit_replace(self.mermaid())
+            await self.pipe.emit_mermaid_diagram(self.mermaid())
             improvement = await self.pipe.get_improvement(node.content, self.topic)
             await self.pipe.emit_message(
                 f"\nResearch direction {i+1}: {improvement}\n\n"
@@ -172,7 +172,7 @@ class MCTS:
             )
             node.add_child(child)
 
-            await self.pipe.emit_replace(self.mermaid())
+            await self.pipe.emit_mermaid_diagram(self.mermaid())
 
         return random.choice(node.children)
 
@@ -284,6 +284,11 @@ class Pipe:
         TAVILY_MIN_SCORE_THRESHOLD: float = Field(
             default=0.70,
             description="Minimum relevance score (0.0-1.0) for Tavily search results to be included. Lower to include more results, raise for higher precision."
+        )
+        MCTS_MERMAID_UPDATE_MODE: str = Field(
+            default='replace',
+            description="How to update the MCTS Mermaid diagram in chat: 'replace' (update in place) or 'append' (post each version as a new message).",
+            pattern="^(replace|append)$"
         )
 
     def __init__(self):
@@ -987,7 +992,7 @@ class Pipe:
                         logger.error(f"Error in MCTS iteration {i}: {e}")
                         continue
 
-                await self.emit_replace(mcts.mermaid())
+                await self.emit_mermaid_diagram(mcts.mermaid())
                 await self.emit_message(best_content)
                 await self.done()
                 return ""
@@ -1017,14 +1022,36 @@ class Pipe:
         )
 
     async def emit_status(self, level: str, message: str, done: bool):
-        await self.__current_event_emitter__(
-            {
-                "type": "status",
-                "data": {
-                    "status": "complete" if done else "in_progress",
-                    "level": level,
-                    "description": message,
-                    "done": done,
-                },
-            }
-        )
+        if self.valves.MCTS_MERMAID_UPDATE_MODE == 'append':
+            # In append mode, format status as a simple message string and use emit_message
+            status_prefix = "[INFO]" # Default prefix
+            if level == "tool":
+                status_prefix = "[TOOL]"
+            elif level == "user":
+                status_prefix = "[USER_INFO]"
+            elif level == "error": # Assuming you might have an error level
+                status_prefix = "[ERROR]"
+            
+            formatted_message = f"{status_prefix} {message}"
+            if done:
+                formatted_message += " (Completed)"
+            await self.emit_message(formatted_message) # Send as a regular chat message
+        else:
+            # Original behavior for replace mode
+            await self.__current_event_emitter__(
+                {
+                    "type": "status",
+                    "data": {
+                        "status": "complete" if done else "in_progress",
+                        "level": level,
+                        "description": message,
+                        "done": done,
+                    },
+                }
+            )
+
+    async def emit_mermaid_diagram(self, mermaid_content: str):
+        if self.valves.MCTS_MERMAID_UPDATE_MODE == 'append':
+            await self.emit_message(mermaid_content)
+        else: # Default to replace
+            await self.emit_replace(mermaid_content)

@@ -32,10 +32,6 @@ class Action:
             default="eleven_multilingual_v2",
             description="ID of the ElevenLabs TTS model to use.",
         )
-        VOICE_NAME: str = Field(
-            default="Sarah",
-            description="Name of the ElevenLabs voice to use (e.g., Sarah, Rachel, Domi, Bella, Antoni, Elli, Josh, Arnold, Adam, Sam).",
-        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -117,23 +113,38 @@ class Action:
             if not self.voice_id_cache:
                 raise ValueError("No available voices to select")
 
-            # Use configured voice from valves
-            selected_voice_name = self.valves.VOICE_NAME
+            response = await __event_call__(
+                {
+                    "type": "input",
+                    "data": {
+                        "title": "Select Voice",
+                        "message": display_message,
+                        "input_type": "select",
+                        "options": list(self.voice_id_cache.keys()),
+                        "value": list(self.voice_id_cache.keys())[0] if self.voice_id_cache else None,
+                    },
+                }
+            )
+
+            if DEBUG:
+                print(f"Debug: Voice selection response: {response}")
+
+            if isinstance(response, str):
+                selected_voice_name = response
+            elif isinstance(response, dict):
+                selected_voice_name = response.get("message")
+            else:
+                raise ValueError(f"Unexpected response type: {type(response)}")
+
             selected_voice_id = self.voice_id_cache.get(selected_voice_name)
 
             if DEBUG:
                 print(
-                    f"Debug: Using configured voice: {selected_voice_name} ({selected_voice_id})"
+                    f"Debug: Selected voice: {selected_voice_name} ({selected_voice_id})"
                 )
 
             if not selected_voice_id:
-                # Fallback to first available voice if configured voice is not found
-                selected_voice_name = list(self.voice_id_cache.keys())[0]
-                selected_voice_id = self.voice_id_cache.get(selected_voice_name)
-                if DEBUG:
-                    print(
-                        f"Debug: {self.valves.VOICE_NAME} not found, using fallback voice: {selected_voice_name} ({selected_voice_id})"
-                    )
+                raise ValueError(f"Invalid voice selection: {selected_voice_name}")
 
             messages = body.get("messages", [])
             assistant_message = next(
