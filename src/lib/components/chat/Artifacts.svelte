@@ -30,6 +30,15 @@
 
 	let copied = false;
 	let iframeElement: HTMLIFrameElement;
+	let fullscreenError = '';
+
+	type FullscreenIframe = HTMLIFrameElement & {
+		webkitRequestFullscreen?: () => void | Promise<void>;
+		msRequestFullscreen?: () => void | Promise<void>;
+	};
+
+	const fullscreenUnavailableMessage =
+		'Full screen is unavailable in this browser or embedded context.';
 
 	function navigateContent(direction: 'prev' | 'next') {
 		selectedContentIdx =
@@ -69,13 +78,30 @@
 		});
 	};
 
-	const showFullScreen = () => {
-		if (iframeElement.requestFullscreen) {
-			iframeElement.requestFullscreen();
-		} else if (iframeElement.webkitRequestFullscreen) {
-			iframeElement.webkitRequestFullscreen();
-		} else if (iframeElement.msRequestFullscreen) {
-			iframeElement.msRequestFullscreen();
+	const showFullScreen = async () => {
+		fullscreenError = '';
+
+		const iframe = iframeElement as FullscreenIframe | undefined;
+		if (!iframe) {
+			fullscreenError = fullscreenUnavailableMessage;
+			toast.error(fullscreenUnavailableMessage);
+			return;
+		}
+
+		try {
+			if (typeof iframe.requestFullscreen === 'function') {
+				await iframe.requestFullscreen();
+			} else if (typeof iframe.webkitRequestFullscreen === 'function') {
+				await iframe.webkitRequestFullscreen();
+			} else if (typeof iframe.msRequestFullscreen === 'function') {
+				await iframe.msRequestFullscreen();
+			} else {
+				throw new Error('Fullscreen API is unavailable');
+			}
+		} catch (error) {
+			console.error('Failed to enter artifact fullscreen:', error);
+			fullscreenError = fullscreenUnavailableMessage;
+			toast.error(fullscreenUnavailableMessage);
 		}
 	};
 
@@ -209,8 +235,10 @@
 						</Tooltip>
 
 						{#if contents[selectedContentIdx].type === 'iframe'}
-							<Tooltip content={$i18n.t('Open in full screen')}>
+							<Tooltip content={$i18n.t('Open in full screen')} touch={false}>
 								<button
+									type="button"
+									aria-label={$i18n.t('Open in full screen')}
 									class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
 									on:click={showFullScreen}
 								>
@@ -219,6 +247,12 @@
 							</Tooltip>
 						{/if}
 					</div>
+
+					{#if fullscreenError}
+						<div class="px-2.5 pb-1 text-xs text-red-600 dark:text-red-400" role="alert">
+							{fullscreenError}
+						</div>
+					{/if}
 				</div>
 
 				<button
@@ -251,6 +285,8 @@
 									$config?.ui?.iframe_csp ?? ''
 								)}
 								class="w-full border-0 h-full rounded-none"
+								allowfullscreen
+								allow="fullscreen"
 								sandbox="{($settings?.iframeSandboxAllowScripts ?? true)
 									? 'allow-scripts'
 									: ''}{($settings?.iframeSandboxAllowDownloads ?? true)
