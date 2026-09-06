@@ -31,6 +31,7 @@
 	let copied = false;
 	let iframeElement: HTMLIFrameElement;
 	let fullscreenError = '';
+	let appFullscreen = false;
 
 	type FullscreenIframe = HTMLIFrameElement & {
 		webkitRequestFullscreen?: () => void | Promise<void>;
@@ -39,6 +40,11 @@
 
 	const fullscreenUnavailableMessage =
 		'Full screen is unavailable in this browser or embedded context.';
+
+	const isStandaloneWebApp = () =>
+		typeof window !== 'undefined' &&
+		((window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
+			window.matchMedia('(display-mode: standalone)').matches);
 
 	function navigateContent(direction: 'prev' | 'next') {
 		selectedContentIdx =
@@ -80,6 +86,14 @@
 
 	const showFullScreen = async () => {
 		fullscreenError = '';
+
+		// iPad Home Screen web apps already run without Safari chrome. Use an
+		// app-level viewport mode there because element fullscreen is not
+		// consistently available in standalone WebKit contexts.
+		if (isStandaloneWebApp()) {
+			appFullscreen = !appFullscreen;
+			return;
+		}
 
 		const iframe = iframeElement as FullscreenIframe | undefined;
 		if (!iframe) {
@@ -148,7 +162,8 @@
 </script>
 
 <div
-	class=" w-full h-full relative flex flex-col bg-white dark:bg-gray-850"
+	class="artifact-container w-full h-full relative flex flex-col bg-white dark:bg-gray-850"
+	class:artifact-app-fullscreen={appFullscreen}
 	id="artifacts-container"
 >
 	<div class="w-full h-full flex flex-col flex-1 relative">
@@ -239,6 +254,7 @@
 								<button
 									type="button"
 									aria-label={$i18n.t('Open in full screen')}
+									aria-pressed={appFullscreen}
 									class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
 									on:click={showFullScreen}
 								>
@@ -314,3 +330,16 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.artifact-app-fullscreen {
+		position: fixed;
+		inset: 0;
+		z-index: 50;
+		width: 100vw;
+		height: 100dvh;
+		overflow: hidden;
+		padding-top: env(safe-area-inset-top);
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+</style>
