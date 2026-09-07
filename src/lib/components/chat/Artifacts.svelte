@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { onMount, getContext, createEventDispatcher } from 'svelte';
+	import { onDestroy, onMount, getContext, createEventDispatcher } from 'svelte';
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
 
@@ -11,7 +11,8 @@
 		settings,
 		showArtifacts,
 		showControls,
-		artifactContents
+		artifactContents,
+		showSidebar
 	} from '$lib/stores';
 	import { copyToClipboard, createMessagesList } from '$lib/utils';
 	import { injectCsp } from '$lib/utils/csp';
@@ -30,6 +31,30 @@
 
 	let copied = false;
 	let iframeElement: HTMLIFrameElement;
+	let fullscreenError = '';
+	let appFullscreen = false;
+
+	type FullscreenIframe = HTMLIFrameElement & {
+		webkitRequestFullscreen?: () => void | Promise<void>;
+		msRequestFullscreen?: () => void | Promise<void>;
+	};
+
+	const fullscreenUnavailableMessage =
+		'Full screen is unavailable in this browser or embedded context.';
+	const appFullscreenClass = 'artifact-app-fullscreen-active';
+
+	const setAppFullscreenChrome = (active: boolean) => {
+		if (typeof document !== 'undefined') {
+			document.body.classList.toggle(appFullscreenClass, active);
+		}
+	};
+
+	onDestroy(() => setAppFullscreenChrome(false));
+
+	const isStandaloneWebApp = () =>
+		typeof window !== 'undefined' &&
+		((window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
+			window.matchMedia('(display-mode: standalone)').matches);
 
 	function navigateContent(direction: 'prev' | 'next') {
 		selectedContentIdx =
@@ -69,13 +94,45 @@
 		});
 	};
 
-	const showFullScreen = () => {
-		if (iframeElement.requestFullscreen) {
-			iframeElement.requestFullscreen();
-		} else if (iframeElement.webkitRequestFullscreen) {
-			iframeElement.webkitRequestFullscreen();
-		} else if (iframeElement.msRequestFullscreen) {
-			iframeElement.msRequestFullscreen();
+	const showFullScreen = async () => {
+		fullscreenError = '';
+
+		// iPad Home Screen web apps already run without Safari chrome. Use an
+		// app-level viewport mode there because element fullscreen is not
+		// consistently available in standalone WebKit contexts.
+		if (isStandaloneWebApp()) {
+			const enteringFullscreen = !appFullscreen;
+			if (enteringFullscreen) {
+				// The iPad standalone layout can be above the mobile breakpoint, so
+				// do this explicitly instead of relying on the $mobile store.
+				showSidebar.set(false);
+			}
+			setAppFullscreenChrome(enteringFullscreen);
+			appFullscreen = enteringFullscreen;
+			return;
+		}
+
+		const iframe = iframeElement as FullscreenIframe | undefined;
+		if (!iframe) {
+			fullscreenError = fullscreenUnavailableMessage;
+			toast.error(fullscreenUnavailableMessage);
+			return;
+		}
+
+		try {
+			if (typeof iframe.requestFullscreen === 'function') {
+				await iframe.requestFullscreen();
+			} else if (typeof iframe.webkitRequestFullscreen === 'function') {
+				await iframe.webkitRequestFullscreen();
+			} else if (typeof iframe.msRequestFullscreen === 'function') {
+				await iframe.msRequestFullscreen();
+			} else {
+				throw new Error('Fullscreen API is unavailable');
+			}
+		} catch (error) {
+			console.error('Failed to enter artifact fullscreen:', error);
+			fullscreenError = fullscreenUnavailableMessage;
+			toast.error(fullscreenUnavailableMessage);
 		}
 	};
 
@@ -122,7 +179,8 @@
 </script>
 
 <div
-	class=" w-full h-full relative flex flex-col bg-white dark:bg-gray-850"
+	class="artifact-container w-full h-full relative flex flex-col bg-white dark:bg-gray-850"
+	class:artifact-app-fullscreen={appFullscreen}
 	id="artifacts-container"
 >
 	<div class="w-full h-full flex flex-col flex-1 relative">
@@ -209,8 +267,11 @@
 						</Tooltip>
 
 						{#if contents[selectedContentIdx].type === 'iframe'}
-							<Tooltip content={$i18n.t('Open in full screen')}>
+							<Tooltip content={$i18n.t('Open in full screen')} touch={false}>
 								<button
+									type="button"
+									aria-label={$i18n.t('Open in full screen')}
+									aria-pressed={appFullscreen}
 									class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
 									on:click={showFullScreen}
 								>
@@ -219,6 +280,12 @@
 							</Tooltip>
 						{/if}
 					</div>
+
+					{#if fullscreenError}
+						<div class="px-2.5 pb-1 text-xs text-red-600 dark:text-red-400" role="alert">
+							{fullscreenError}
+						</div>
+					{/if}
 				</div>
 
 				<button
@@ -251,6 +318,8 @@
 									$config?.ui?.iframe_csp ?? ''
 								)}
 								class="w-full border-0 h-full rounded-none"
+								allowfullscreen
+								allow="fullscreen"
 								sandbox="{($settings?.iframeSandboxAllowScripts ?? true)
 									? 'allow-scripts'
 									: ''}{($settings?.iframeSandboxAllowDownloads ?? true)
@@ -278,3 +347,22 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.artifact-app-fullscreen {
+		position: fixed;
+		inset: 0;
+		z-index: 1000;
+		width: 100vw;
+		height: 100dvh;
+		overflow: hidden;
+		padding-top: env(safe-area-inset-top);
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+
+	:global(body.artifact-app-fullscreen-active #sidebar),
+	:global(body.artifact-app-fullscreen-active #controls-resizer) {
+		visibility: hidden;
+		pointer-events: none;
+	}
+</style>
