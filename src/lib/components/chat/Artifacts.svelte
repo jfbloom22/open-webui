@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { onMount, getContext, createEventDispatcher } from 'svelte';
+	import { onDestroy, onMount, getContext, createEventDispatcher } from 'svelte';
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
 
@@ -41,6 +41,15 @@
 
 	const fullscreenUnavailableMessage =
 		'Full screen is unavailable in this browser or embedded context.';
+	const appFullscreenClass = 'artifact-app-fullscreen-active';
+
+	const setAppFullscreenChrome = (active: boolean) => {
+		if (typeof document !== 'undefined') {
+			document.body.classList.toggle(appFullscreenClass, active);
+		}
+	};
+
+	onDestroy(() => setAppFullscreenChrome(false));
 
 	const isStandaloneWebApp = () =>
 		typeof window !== 'undefined' &&
@@ -98,6 +107,7 @@
 				// do this explicitly instead of relying on the $mobile store.
 				showSidebar.set(false);
 			}
+			setAppFullscreenChrome(enteringFullscreen);
 			appFullscreen = enteringFullscreen;
 			return;
 		}
@@ -348,5 +358,11 @@
 		overflow: hidden;
 		padding-top: env(safe-area-inset-top);
 		padding-bottom: env(safe-area-inset-bottom);
+	}
+
+	:global(body.artifact-app-fullscreen-active #sidebar),
+	:global(body.artifact-app-fullscreen-active #controls-resizer) {
+		visibility: hidden;
+		pointer-events: none;
 	}
 </style>
