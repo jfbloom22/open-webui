@@ -11,7 +11,8 @@
 		settings,
 		showArtifacts,
 		showControls,
-		artifactContents
+		artifactContents,
+		showSidebar
 	} from '$lib/stores';
 	import { copyToClipboard, createMessagesList } from '$lib/utils';
 	import { injectCsp } from '$lib/utils/csp';
@@ -91,7 +92,13 @@
 		// app-level viewport mode there because element fullscreen is not
 		// consistently available in standalone WebKit contexts.
 		if (isStandaloneWebApp()) {
-			appFullscreen = !appFullscreen;
+			const enteringFullscreen = !appFullscreen;
+			if (enteringFullscreen) {
+				// The iPad standalone layout can be above the mobile breakpoint, so
+				// do this explicitly instead of relying on the $mobile store.
+				showSidebar.set(false);
+			}
+			appFullscreen = enteringFullscreen;
 			return;
 		}
 
@@ -335,7 +342,7 @@
 	.artifact-app-fullscreen {
 		position: fixed;
 		inset: 0;
-		z-index: 50;
+		z-index: 1000;
 		width: 100vw;
 		height: 100dvh;
 		overflow: hidden;
