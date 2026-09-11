@@ -29,7 +29,6 @@
 	import DocxPreview from './DocxPreview.svelte';
 	import PptxPreview from './PptxPreview.svelte';
 	import Reset from '../icons/Reset.svelte';
-	import Download from '../icons/Download.svelte';
 
 	export let item;
 	export let show = false;
@@ -61,11 +60,6 @@
 	let pptxSlides: string[] = [];
 	let pptxCurrentSlide = 0;
 	let pptxError = '';
-
-	$: downloadUrl =
-		item?.type === 'file' && (item?.id ?? item?.tempId)
-			? `${WEBUI_API_BASE_URL}/files/${item?.id ?? item?.tempId}/content?attachment=true`
-			: item?.url;
 
 	let panzoomRef: PanzoomContainer;
 	const resetImageView = () => {
@@ -204,9 +198,7 @@
 	};
 
 	const loadContent = async () => {
-		// Binary audio has no extracted document content. Start on the playable
-		// representation instead of a misleading empty content panel.
-		selectedTab = isAudio ? 'preview' : '';
+		selectedTab = '';
 		expandedContent = false;
 		docxData = null;
 		if (item?.type === 'collection') {
@@ -272,8 +264,16 @@
 							href="#"
 							class="hover:underline line-clamp-1"
 							on:click|preventDefault={() => {
-								if (downloadUrl) {
-									window.open(downloadUrl, '_blank');
+								if (item.type === 'file' || item.url) {
+									let fileId = item?.id ?? item?.tempId;
+									window.open(
+										item.type === 'file'
+											? item?.url?.startsWith('http')
+												? item.url
+												: `${WEBUI_API_BASE_URL}/files/${fileId}/content`
+											: item.url,
+										'_blank'
+									);
 								}
 							}}
 						>
@@ -282,19 +282,7 @@
 					</div>
 				</div>
 
-				<div class="flex items-center gap-2">
-					{#if downloadUrl}
-						<Tooltip content={$i18n.t('Download')}>
-							<a
-								href={downloadUrl}
-								download={item?.name ?? 'download'}
-								class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-								aria-label={$i18n.t('Download')}
-							>
-								<Download className="size-4" />
-							</a>
-						</Tooltip>
-					{/if}
+				<div>
 					<button
 						on:click={() => {
 							show = false;
