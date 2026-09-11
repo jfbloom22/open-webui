@@ -63,10 +63,8 @@
 	let pptxError = '';
 
 	$: downloadUrl =
-		item?.type === 'file'
-			? item?.url?.startsWith('http')
-				? item.url
-				: `${WEBUI_API_BASE_URL}/files/${item?.id ?? item?.tempId}/content`
+		item?.type === 'file' && (item?.id ?? item?.tempId)
+			? `${WEBUI_API_BASE_URL}/files/${item?.id ?? item?.tempId}/content?attachment=true`
 			: item?.url;
 
 	let panzoomRef: PanzoomContainer;
@@ -274,16 +272,8 @@
 							href="#"
 							class="hover:underline line-clamp-1"
 							on:click|preventDefault={() => {
-								if (item.type === 'file' || item.url) {
-									let fileId = item?.id ?? item?.tempId;
-									window.open(
-										item.type === 'file'
-											? item?.url?.startsWith('http')
-												? item.url
-												: `${WEBUI_API_BASE_URL}/files/${fileId}/content`
-											: item.url,
-										'_blank'
-									);
+								if (downloadUrl) {
+									window.open(downloadUrl, '_blank');
 								}
 							}}
 						>
