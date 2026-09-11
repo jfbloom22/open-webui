@@ -282,7 +282,19 @@
 					</div>
 				</div>
 
-				<div>
+				<div class="flex items-center gap-2">
+					{#if downloadUrl}
+						<Tooltip content={$i18n.t('Download')}>
+							<a
+								href={downloadUrl}
+								download={item?.name ?? 'download'}
+								class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+								aria-label={$i18n.t('Download')}
+							>
+								<Download className="size-4" />
+							</a>
+						</Tooltip>
+					{/if}
 					<button
 						on:click={() => {
 							show = false;
@@ -412,20 +424,6 @@
 								selectedTab = 'preview';
 							}}>{$i18n.t('Preview')}</button
 						>
-					</div>
-				{/if}
-
-				{#if downloadUrl}
-					<div class="mb-3 flex justify-end">
-						<a
-							href={downloadUrl}
-							download={item?.name ?? 'download'}
-							class="inline-flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-							aria-label={isAudio ? 'Download audio' : $i18n.t('Download')}
-						>
-							<Download className="size-4" />
-							<span>{isAudio ? 'Download audio' : $i18n.t('Download')}</span>
-						</a>
 					</div>
 				{/if}
 
