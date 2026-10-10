@@ -636,11 +636,15 @@
 
 	const cloneHandler = async (model) => {
 		model = await getFullModel(model);
+		// A clone is a new model for the cloner. Do not copy the parent's
+		// access_grants or owner; group shares would otherwise follow the clone.
+		const { access_grants: _accessGrants, user_id: _userId, user: _user, ...rest } = model;
 		sessionStorage.model = JSON.stringify({
-			...model,
+			...rest,
 			...(isPresetModel(model) ? {} : { base_model_id: model.id }),
 			id: `${model.id}-clone`,
-			name: `${model.name} (Clone)`
+			name: `${model.name} (Clone)`,
+			access_grants: []
 		});
 		showSettings.set(false);
 		await goto('/workspace/models/create');
