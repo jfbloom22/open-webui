@@ -1,4 +1,7 @@
 <script context="module">
+	// Keep keys in nested template expressions visible to i18next-parser.
+	// $i18n.t("Unknown error");
+
 	// Persists across mount/unmount cycles (module-level, not per-instance)
 	let savedPath = '/';
 	let savedFileRoot = null;
@@ -11,6 +14,8 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount, onDestroy, tick } from 'svelte';
+	import type { Readable } from 'svelte/store';
+	import type { i18n as I18n } from 'i18next';
 	import {
 		terminalServers,
 		settings,
@@ -50,7 +55,7 @@
 
 	import FileNavToolbar from './FileNav/FileNavToolbar.svelte';
 	import FilePreview from './FileNav/FilePreview.svelte';
-	import FileCompare from './FileNav/FileCompare.svelte';
+	import FileComparisonModal from './FileNav/FileComparisonModal.svelte';
 	import FileEntryRow from './FileNav/FileEntryRow.svelte';
 	import Icon from './FileNav/Icon.svelte';
 	import FileTypeIcon from './FileNav/FileTypeIcon.svelte';
@@ -59,7 +64,7 @@
 	import PortPreview from './FileNav/PortPreview.svelte';
 	import TerminalDock from './TerminalDock.svelte';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Readable<I18n>>('i18n');
 
 	export let overlay = false;
 	export let chatId: string | null = null;
@@ -70,7 +75,35 @@
 	let isDraggingHandle = false;
 	let containerEl: HTMLElement;
 	let terminalEnabled = true;
-	let comparePaths: [string, string] | null = null;
+	type ComparisonFile = { name: string; path: string; size?: number };
+	let pinnedComparison: ComparisonFile | null = null;
+	let comparison: {
+		files: [ComparisonFile, ComparisonFile];
+		terminal: { url: string; key: string };
+		chatId: string | null;
+		opener: HTMLElement | null;
+	} | null = null;
+	const comparisonFile = (entry: FileEntry & { fullPath: string }): ComparisonFile => ({
+		name: entry.name,
+		path: entry.fullPath,
+		size: entry.size
+	});
+	const openComparison = (files: [ComparisonFile, ComparisonFile]) => {
+		if (!selectedTerminal || files[0].path === files[1].path) return;
+		comparison = {
+			files: files.map((file) => ({ ...file })) as [ComparisonFile, ComparisonFile],
+			terminal: { ...selectedTerminal },
+			chatId,
+			opener: document.activeElement instanceof HTMLElement ? document.activeElement : null
+		};
+	};
+	const closeComparison = async () => {
+		const opener = comparison?.opener;
+		comparison = null;
+		await tick();
+		// Let the modal's focus trap finish releasing before restoring the browser control.
+		setTimeout(() => (opener?.isConnected ? opener : containerEl)?.focus(), 0);
+	};
 
 	const onHandleMouseDown = (e: MouseEvent) => {
 		e.preventDefault();
@@ -355,6 +388,11 @@
 	let selectedTerminal: { url: string; key: string } | null = null;
 	let terminalChatContextPending = false;
 	let terminalChatContextHidden = false;
+	let isPerChatTerminal = false;
+	$: portPreviewBaseUrl =
+		selectedTerminal && isPerChatTerminal && chatId
+			? `${selectedTerminal.url}/chats/${encodeURIComponent(chatId)}`
+			: (selectedTerminal?.url ?? '');
 
 	const chatContext = (terminal: any) => terminal?.contexts?.chat ?? {};
 
@@ -363,10 +401,12 @@
 			? (($terminalServers ?? []).find((t) => t.id === $selectedTerminalId) ?? null)
 			: ($terminalServers?.[0] ?? null);
 		const chatConfig = chatContext(systemTerminal);
-		const chatScoped = !!systemTerminal && chatConfig?.context_id === 'chat_id';
+		isPerChatTerminal = !!systemTerminal && chatConfig?.context_id === 'chat_id';
 		terminalChatContextHidden =
-			!!systemTerminal && (chatConfig === false || (chatScoped && isTemporaryChatId(chatId)));
-		terminalChatContextPending = chatScoped && !terminalChatContextHidden && !isSavedChatId(chatId);
+			!!systemTerminal &&
+			(chatConfig === false || (isPerChatTerminal && isTemporaryChatId(chatId)));
+		terminalChatContextPending =
+			isPerChatTerminal && !terminalChatContextHidden && !isSavedChatId(chatId);
 		if (terminalChatContextHidden || terminalChatContextPending) return null;
 
 		const settingsValue: any = $settings;
@@ -385,6 +425,7 @@
 	// Svelte re-runs this block when any of them update.
 	// The `mounted` flag prevents the initial run from racing with onMount.
 	let prevTerminalUrl = '';
+	let prevTerminalId = $selectedTerminalId;
 	let prevChatId = chatId;
 	let mounted = false;
 	$: {
@@ -396,10 +437,18 @@
 		const oldChatId = prevChatId;
 		if (chatChanged) prevChatId = chatId;
 
-		const terminalChanged = terminal && terminal.url !== prevTerminalUrl;
-		if (terminalChanged) prevTerminalUrl = terminal.url;
+		const terminalChanged =
+			terminal && (terminal.url !== prevTerminalUrl || $selectedTerminalId !== prevTerminalId);
+		if (terminalChanged) {
+			prevTerminalUrl = terminal.url;
+			prevTerminalId = $selectedTerminalId;
+		}
 
-		if (chatChanged || terminalChanged || !terminal) comparePaths = null;
+		if (chatChanged || terminalChanged || !terminal) {
+			comparison = null;
+			pinnedComparison = null;
+		}
+		if (chatChanged || terminalChanged || !terminal) previewPort = null;
 
 		if (mounted && terminal) {
 			if (chatChanged && chatId && !oldChatId) {
@@ -713,7 +762,6 @@
 	) => {
 		const terminal = selectedTerminal;
 		if (!terminal) return;
-		comparePaths = null;
 		const directory = clampToFileRoot(path);
 		if (options.restoreTree) {
 			restoreTreeState(directory);
@@ -1145,7 +1193,7 @@
 			chatId ?? undefined
 		);
 		toast[result ? 'success' : 'error'](
-			$i18n.t(result ? 'Folder created' : 'Failed to create folder')
+			result ? $i18n.t('Folder created') : $i18n.t('Failed to create folder')
 		);
 		invalidateTreeCache(currentPath);
 		await loadDir(currentPath, { preserveTree: true });
@@ -1171,7 +1219,9 @@
 
 		const emptyFile = new File([''], name, { type: 'application/octet-stream' });
 		const result = await uploadToTerminal(terminal.url, terminal.key, currentPath, emptyFile);
-		toast[result ? 'success' : 'error']($i18n.t(result ? 'File created' : 'Failed to create file'));
+		toast[result ? 'success' : 'error'](
+			result ? $i18n.t('File created') : $i18n.t('Failed to create file')
+		);
 		invalidateTreeCache(currentPath);
 		await loadDir(currentPath, { preserveTree: true });
 	};
@@ -1183,7 +1233,9 @@
 
 		const result = await deleteEntry(terminal.url, terminal.key, path, chatId ?? undefined);
 		toast[result ? 'success' : 'error'](
-			$i18n.t(result ? '{{name}} deleted' : 'Failed to delete {{name}}', { name })
+			result
+				? $i18n.t('{{name}} deleted', { name })
+				: $i18n.t('Failed to delete {{name}}', { name })
 		);
 		invalidateTreeCache(currentPath, path);
 		await loadDir(currentPath, { preserveTree: true });
@@ -1280,7 +1332,9 @@
 	let selectionMode = false;
 
 	$: selectedCount = selectedEntries.size;
-	$: comparisonEntries = visibleEntries.filter((entry) => selectedEntries.has(entry.fullPath));
+	$: comparisonEntries = [...selectedEntries]
+		.map((path) => visibleEntries.find((entry) => entry.fullPath === path))
+		.filter((entry) => entry !== undefined);
 	$: canCompare =
 		selectedCount === 2 &&
 		comparisonEntries.length === 2 &&
@@ -1380,7 +1434,7 @@
 
 	// Escape to clear selection
 	const handleKeydown = (e: KeyboardEvent) => {
-		if (comparePaths) return;
+		if (comparison) return;
 		if (e.key === 'Escape' && selectedCount > 0) {
 			e.preventDefault();
 			clearSelection();
@@ -1389,12 +1443,17 @@
 
 	// Click outside panel to clear selection
 	const handleWindowClick = (e: MouseEvent) => {
+		// A close click may reach the window after its modal has already been destroyed.
+		if (
+			e.composedPath().some((node) => node instanceof Element && node.classList.contains('modal'))
+		)
+			return;
 		if (directoryMenu) directoryMenu = null;
 		if (
-			!comparePaths &&
+			!comparison &&
 			selectedCount > 0 &&
 			containerEl &&
-			!containerEl.contains(e.target as Node)
+			!e.composedPath().includes(containerEl)
 		) {
 			clearSelection();
 		}
@@ -1408,7 +1467,7 @@
 		let handledDisplayFile = false;
 
 		const unsubFileNav = showFileNavPath.subscribe(async (request) => {
-			if (!request || !selectedTerminal) return;
+			if (!request || !selectedTerminal || comparison) return;
 			handledDisplayFile = true;
 			showFileNavPath.set(null);
 			let filePath = typeof request === 'string' ? request : request.path;
@@ -1441,13 +1500,13 @@
 			showFileNavDir.set(null);
 			filePath = normalizePath(filePath);
 			if (!isInsideFileRoot(filePath)) {
-				await loadDir(fileRoot?.path ?? '/');
-				return;
+				filePath = fileRoot?.path ?? '/';
 			}
 
 			const lastSlash = filePath.lastIndexOf('/');
 			const dir = lastSlash > 0 ? filePath.substring(0, lastSlash + 1) : '/';
 			invalidateTreeCache(dir);
+			if (comparison) return;
 
 			if (selectedFile) {
 				if (selectedFile === filePath || currentPath.startsWith(dir)) {
@@ -1494,7 +1553,7 @@
 		const onVisibilityChange = () => {
 			if (
 				document.visibilityState === 'visible' &&
-				!comparePaths &&
+				!comparison &&
 				!selectedFile &&
 				selectedTerminal &&
 				!terminalChatContextPending &&
@@ -1543,6 +1602,18 @@
 
 <svelte:window on:keydown={handleKeydown} on:click={handleWindowClick} />
 
+{#if comparison}
+	{#key comparison}
+		<FileComparisonModal
+			files={comparison.files}
+			baseUrl={comparison.terminal.url}
+			apiKey={comparison.terminal.key}
+			chatId={comparison.chatId}
+			onClose={closeComparison}
+		/>
+	{/key}
+{/if}
+
 {#if terminalChatContextHidden}
 	<div class="hidden"></div>
 {:else if terminalChatContextPending}
@@ -1581,6 +1652,7 @@
 		on:drop={(e) => !isSearching && handleDrop(e)}
 		role="region"
 		aria-label={$i18n.t('File browser')}
+		tabindex="-1"
 	>
 		{#if isDragOver && !isSearching}
 			<div
@@ -1593,7 +1665,7 @@
 			</div>
 		{/if}
 
-		{#if previewPort === null && !comparePaths}
+		{#if previewPort === null}
 			<FileNavToolbar
 				breadcrumbs={buildBreadcrumbs(currentPath)}
 				{selectedFile}
@@ -1779,6 +1851,22 @@
 				</div>
 			{/if}
 
+			{#if pinnedComparison}
+				<div class="flex shrink-0 items-center gap-2 px-3 py-1.5 text-xs text-gray-500">
+					<Tooltip content={pinnedComparison.path}>
+						<span class="block max-w-[16rem] truncate"
+							>{$i18n.t('Comparing with {{name}}', { name: pinnedComparison.name })}</span
+						>
+					</Tooltip>
+					<button
+						type="button"
+						class="shrink-0 hover:text-gray-900 dark:hover:text-white"
+						aria-label={$i18n.t('Clear comparison selection')}
+						on:click={() => (pinnedComparison = null)}><Icon name="xmark" size={12} /></button
+					>
+				</div>
+			{/if}
+
 			<!-- Bulk action bar -->
 			{#if selectedCount > 0 && !isSearching}
 				<BulkActionBar
@@ -1786,7 +1874,10 @@
 					{canCompare}
 					onCompare={() => {
 						if (canCompare)
-							comparePaths = [comparisonEntries[0].fullPath, comparisonEntries[1].fullPath];
+							openComparison([
+								comparisonFile(comparisonEntries[0]),
+								comparisonFile(comparisonEntries[1])
+							]);
 					}}
 					canDelete={selectedEntriesWritable}
 					onDelete={() => {
@@ -1805,26 +1896,18 @@
 			class="flex-1 overflow-y-auto min-h-0 min-w-0"
 			on:click={(e) => {
 				closeDirectoryMenu();
-				if (!comparePaths && e.target === e.currentTarget && selectedCount > 0) clearSelection();
+				if (!comparison && e.target === e.currentTarget && selectedCount > 0) clearSelection();
 			}}
 			on:contextmenu={(e) => {
-				if (comparePaths || selectedFile || previewPort !== null || isSearching) return;
+				if (comparison || selectedFile || previewPort !== null || isSearching) return;
 				if ((e.target as HTMLElement)?.closest('[data-file-row]')) return;
 				e.preventDefault();
 				directoryMenu = { x: e.clientX, y: e.clientY };
 			}}
 		>
-			{#if comparePaths && selectedTerminal}
-				<FileCompare
-					paths={comparePaths}
-					baseUrl={selectedTerminal.url}
-					apiKey={selectedTerminal.key}
-					{chatId}
-					onBack={() => (comparePaths = null)}
-				/>
-			{:else if previewPort !== null}
+			{#if previewPort !== null}
 				<PortPreview
-					baseUrl={selectedTerminal?.url ?? ''}
+					baseUrl={portPreviewBaseUrl}
 					port={previewPort}
 					overlay={overlay || isDraggingHandle}
 					onClose={() => {
@@ -1873,7 +1956,7 @@
 						const file = new File([content], fileName, { type: 'text/plain' });
 						const result = await uploadToTerminal(terminal.url, terminal.key, dir, file);
 						toast[result ? 'success' : 'error'](
-							$i18n.t(result ? 'File saved' : 'Failed to save file')
+							result ? $i18n.t('File saved') : $i18n.t('Failed to save file')
 						);
 						if (result) fileContent = content;
 					}}
@@ -2078,6 +2161,14 @@
 											depth: entry.depth,
 											rowIndex: entry.rowIndex
 										})}
+									onSelectForComparison={() => (pinnedComparison = comparisonFile(entry))}
+									comparisonPath={pinnedComparison?.path ?? null}
+									onCompareWithSelected={pinnedComparison
+										? () => {
+												if (pinnedComparison)
+													openComparison([pinnedComparison, comparisonFile(entry)]);
+											}
+										: undefined}
 									onDownload={downloadFile}
 									onDelete={requestDelete}
 									onMove={handleMovePaths}
@@ -2098,15 +2189,19 @@
 		<!-- Port detection -->
 		{#if selectedTerminal && !selectedFile && previewPort === null && !isSearching}
 			<div class="shrink-0 border-t border-gray-50 dark:border-gray-850/30">
-				<PortList
-					baseUrl={selectedTerminal.url}
-					apiKey={selectedTerminal.key}
-					on:previewPort={(e) => {
-						selectedFile = null;
-						clearFilePreview();
-						previewPort = e.detail;
-					}}
-				/>
+				{#key JSON.stringify([chatId, selectedTerminal.url])}
+					<PortList
+						baseUrl={selectedTerminal.url}
+						previewBaseUrl={portPreviewBaseUrl}
+						apiKey={selectedTerminal.key}
+						{chatId}
+						on:previewPort={(e) => {
+							selectedFile = null;
+							clearFilePreview();
+							previewPort = e.detail;
+						}}
+					/>
+				{/key}
 			</div>
 		{/if}
 
