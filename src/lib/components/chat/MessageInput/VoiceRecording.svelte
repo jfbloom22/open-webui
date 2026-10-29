@@ -87,6 +87,7 @@
 	};
 
 	let stream;
+	let audioContext: AudioContext | null = null;
 	let speechRecognition;
 
 	let mediaRecorder;
@@ -116,8 +117,14 @@
 		return Math.min(1.0, Math.max(0.01, scaledRMS));
 	};
 
+	// Chrome on Android caps open audio outputs at 10.
+	const closeAudioContext = () => {
+		void audioContext?.close();
+		audioContext = null;
+	};
+
 	const analyseAudio = (stream) => {
-		const audioContext = new AudioContext();
+		audioContext = new AudioContext();
 		const audioStreamSource = audioContext.createMediaStreamSource(stream);
 
 		const analyser = audioContext.createAnalyser();
@@ -257,6 +264,11 @@
 			console.log('Recording started');
 			loading = false;
 			startDurationCounter();
+
+			if (document.activeElement === document.body || !document.activeElement?.checkVisibility()) {
+				await tick();
+				document.getElementById('confirm-recording-button')?.focus();
+			}
 
 			await requestWakeLock();
 
@@ -399,6 +411,7 @@
 		}
 
 		stream = null;
+		closeAudioContext();
 	};
 
 	const confirmRecording = async () => {
@@ -418,6 +431,7 @@
 		}
 
 		stream = null;
+		closeAudioContext();
 	};
 
 	let resizeObserver;
@@ -462,7 +476,9 @@
 	onDestroy(() => {
 		window.removeEventListener('keydown', handleKeyDown);
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
+		stopRecording();
 		releaseWakeLock();
+		closeAudioContext();
 		// remove resize observer
 		resizeObserver.disconnect();
 	});
@@ -485,6 +501,7 @@
 
 
              rounded-full"
+			aria-label={$i18n.t('Cancel')}
 			on:click={async () => {
 				cancelRecording();
 				onCancel();

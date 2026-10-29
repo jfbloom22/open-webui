@@ -146,11 +146,12 @@
 
 				<div class="flex w-full items-center">
 					<div
-						class="flex min-w-0 mr-1.5 items-center gap-0.5 md:gap-1 scrollbar-none overflow-x-auto w-fit text-center text-sm font-normal rounded-full bg-transparent py-1 touch-auto pointer-events-auto"
+						class="flex min-w-0 mr-1.5 items-center gap-0.5 md:gap-1 scrollbar-none overflow-x-auto w-fit text-center text-sm font-normal bg-transparent py-1 touch-auto pointer-events-auto"
 					>
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models}
 							<a
 								draggable="false"
+								data-sveltekit-keepfocus
 								aria-current={activeWorkspaceSection === 'models' ? 'page' : null}
 								class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
 								'models'
@@ -168,6 +169,7 @@
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.knowledge}
 							<a
 								draggable="false"
+								data-sveltekit-keepfocus
 								aria-current={activeWorkspaceSection === 'knowledge' ? 'page' : null}
 								class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
 								'knowledge'
@@ -185,6 +187,7 @@
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.prompts}
 							<a
 								draggable="false"
+								data-sveltekit-keepfocus
 								aria-current={activeWorkspaceSection === 'prompts' ? 'page' : null}
 								class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
 								'prompts'
@@ -202,6 +205,7 @@
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.skills}
 							<a
 								draggable="false"
+								data-sveltekit-keepfocus
 								aria-current={activeWorkspaceSection === 'skills' ? 'page' : null}
 								class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
 								'skills'
@@ -219,6 +223,7 @@
 						{#if $config?.features?.enable_tools && ($user?.role === 'admin' || $user?.permissions?.workspace?.tools)}
 							<a
 								draggable="false"
+								data-sveltekit-keepfocus
 								aria-current={activeWorkspaceSection === 'tools' ? 'page' : null}
 								class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
 								'tools'
@@ -254,3 +259,11 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	:global(html.high-contrast) a[aria-current='page'] {
+		text-decoration-line: underline;
+		text-decoration-thickness: 2px;
+		text-underline-offset: 3px;
+	}
+</style>

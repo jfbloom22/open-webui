@@ -83,7 +83,7 @@ from open_webui.models.config import Config
 from open_webui.models.groups import GroupForm, GroupModel, Groups, GroupUpdateForm
 from open_webui.models.oauth_sessions import OAuthSessions
 from open_webui.models.users import Users
-from open_webui.retrieval.web.utils import get_ssrf_safe_session, validate_url
+from open_webui.retrieval.web.utils import assert_identity_encoding, get_ssrf_safe_session, validate_url
 from open_webui.utils.auth import (
     get_optional_verified_user_from_request,
     get_password_hash,
@@ -714,7 +714,11 @@ async def get_oauth_client_info_with_static_credentials(
             oauth_server_metadata.token_endpoint_auth_methods_supported
             and token_endpoint_auth_method not in oauth_server_metadata.token_endpoint_auth_methods_supported
         ):
-            token_endpoint_auth_method = oauth_server_metadata.token_endpoint_auth_methods_supported[0]
+            # List order is no preference; prefer a method that sends the secret
+            if 'client_secret_basic' in oauth_server_metadata.token_endpoint_auth_methods_supported:
+                token_endpoint_auth_method = 'client_secret_basic'
+            else:
+                token_endpoint_auth_method = oauth_server_metadata.token_endpoint_auth_methods_supported[0]
 
         oauth_client_info = OAuthClientInformationFull(
             client_id=oauth_client_id,
@@ -1186,8 +1190,14 @@ class OAuthClientManager:
             if should_send_oauth_resource(client_info):
                 refresh_data['resource'] = client_info.resource
 
+            client_auth = None
             if hasattr(client, 'client_secret') and client.client_secret:
-                refresh_data['client_secret'] = client.client_secret
+                if client.client_kwargs.get('token_endpoint_auth_method') == 'client_secret_basic':
+                    client_auth = aiohttp.BasicAuth(client.client_id, client.client_secret)
+                    # Some providers reject a body client_id next to Basic as a second credential (#19415)
+                    del refresh_data['client_id']
+                else:
+                    refresh_data['client_secret'] = client.client_secret
 
             # Add scope if available in client kwargs (some providers require it on refresh)
             if (
@@ -1202,6 +1212,7 @@ class OAuthClientManager:
                 async with session_http.post(
                     token_endpoint,
                     data=refresh_data,
+                    auth=client_auth,
                     headers={'Content-Type': 'application/x-www-form-urlencoded'},
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
                 ) as r:
@@ -1538,9 +1549,15 @@ class OAuthManager:
                 'refresh_token': token_data['refresh_token'],
                 'client_id': client.client_id,
             }
+            client_auth = None
             # Add client_secret if available (some providers require it)
             if hasattr(client, 'client_secret') and client.client_secret:
-                refresh_data['client_secret'] = client.client_secret
+                if client.client_kwargs.get('token_endpoint_auth_method') == 'client_secret_basic':
+                    client_auth = aiohttp.BasicAuth(client.client_id, client.client_secret)
+                    if not OAUTH_ACCESS_TOKEN_REQUEST_INCLUDE_CLIENT_ID:
+                        del refresh_data['client_id']
+                else:
+                    refresh_data['client_secret'] = client.client_secret
 
             # Add scope if available in client kwargs (some providers require it on refresh)
             if (
@@ -1555,6 +1572,7 @@ class OAuthManager:
                 async with session_http.post(
                     token_endpoint,
                     data=refresh_data,
+                    auth=client_auth,
                     headers={'Content-Type': 'application/x-www-form-urlencoded'},
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
                 ) as r:
@@ -1860,20 +1878,19 @@ class OAuthManager:
         try:
             await asyncio.to_thread(validate_url, picture_url)
 
-            get_kwargs = {}
+            headers = {'Accept-Encoding': 'identity'}
             if access_token:
-                get_kwargs['headers'] = {
-                    'Authorization': f'Bearer {access_token}',
-                }
+                headers['Authorization'] = f'Bearer {access_token}'
             # get_ssrf_safe_session pins the connect-time IP (defeats DNS rebinding); allow_redirects=False keeps validate_url's vet authoritative.
             async with get_ssrf_safe_session() as session:
                 async with session.get(
                     picture_url,
-                    **get_kwargs,
+                    headers=headers,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
                     allow_redirects=AIOHTTP_CLIENT_ALLOW_REDIRECTS,
                 ) as resp:
                     if resp.ok:
+                        assert_identity_encoding(resp.headers.getall('Content-Encoding', ()))
                         upstream_mime = (resp.headers.get('Content-Type', '') or '').split(';', 1)[0].strip().lower()
                         picture = await resp.read()
                         base64_encoded_picture = base64.b64encode(picture).decode('utf-8')

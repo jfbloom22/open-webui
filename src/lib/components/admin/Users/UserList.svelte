@@ -362,7 +362,9 @@
 						</button>
 					</th>
 
-					<th scope="col" class="px-2.5 py-1.5 font-normal text-right"></th>
+					<th scope="col" class="px-2.5 py-1.5 font-normal text-right"
+						><span class="sr-only">{$i18n.t('Actions')}</span></th
+					>
 				</tr>
 			</thead>
 			<tbody class="">
@@ -413,9 +415,16 @@
 						<td class=" px-3 py-1 max-w-48 truncate"> {user.email} </td>
 
 						<td class=" px-3 py-1">
-							{dayjs(user.last_active_at * 1000)
-								.locale($i18n.language)
-								.fromNow()}
+							<Tooltip
+								content={new Date(user.last_active_at * 1000).toLocaleString($i18n.language, {
+									dateStyle: 'medium',
+									timeStyle: 'long'
+								})}
+							>
+								{dayjs(user.last_active_at * 1000)
+									.locale($i18n.language)
+									.fromNow()}
+							</Tooltip>
 						</td>
 
 						<td class=" px-3 py-1">

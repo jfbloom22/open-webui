@@ -30,17 +30,16 @@ from open_webui.models.chats import (
     ChatTitleIdResponse,
     ChatUsageStatsListResponse,
     MessageStats,
-    chat_search_content_query,
-    chat_search_terms,
 )
 from open_webui.models.config import Config
 from open_webui.models.folders import Folders
 from open_webui.models.shared_chats import ChatShareMode, ShareChatForm, SharedChatResponse, SharedChats
 from open_webui.models.tags import TagModel, Tags
+from open_webui.models.users import UserModel
 from open_webui.socket.main import get_event_emitter
 from open_webui.tasks import get_response_streams_by_chat_id, has_active_tasks, stop_item_tasks
-from open_webui.utils.access_control import filter_allowed_access_grants, has_permission
-from open_webui.utils.access_control.folders import has_folder_write_access
+from open_webui.utils.access_control import has_permission, validate_access_grants
+from open_webui.utils.access_control.folders import has_chat_move_access, has_folder_write_access
 from open_webui.utils.auth import bearer_security, get_admin_user, get_current_user, get_verified_user
 from open_webui.utils.chat_fork import build_fork_history
 from open_webui.utils.context_compaction import compact_chat_branch, get_chat_context_usage
@@ -167,6 +166,16 @@ async def shared_chat_response(chat, user=None, db=None):
     return data
 
 
+def set_message_authors(chat: dict, user: UserModel) -> None:
+    """Attribute client-supplied messages to the user."""
+    messages = list((chat.get('history', {}).get('messages') or {}).values())
+    messages.extend(chat.get('messages') or [])
+    for message in messages:
+        message['user_id'] = user.id
+        if message.get('role') == 'user':
+            message['user'] = {'id': user.id, 'name': user.name}
+
+
 async def add_active_state_to_chat_list(
     request: Request, chat_list: list[ChatTitleIdResponse]
 ) -> list[ChatTitleIdResponse]:
@@ -214,47 +223,6 @@ class ChatConfigForm(BaseModel):
 
 class CompactChatForm(BaseModel):
     model: str | None = None
-
-
-def chat_search_content_text(text: str) -> str:
-    return chat_search_content_query(text)
-
-
-def chat_search_snippet(chat: dict, search_text: str, max_length: int = 200) -> str | None:
-    if not search_text:
-        return None
-
-    history = chat.get('history', {})
-    messages = history.get('messages') if isinstance(history, dict) else None
-    if not messages:
-        messages = chat.get('messages', []) or []
-    if isinstance(messages, dict):
-        messages = messages.values()
-
-    needles = list(dict.fromkeys([search_text, *chat_search_terms(search_text)]))
-    for needle in needles:
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-
-            content = message.get('content')
-            if not isinstance(content, str):
-                continue
-
-            index = content.lower().find(needle)
-            if index == -1:
-                continue
-
-            start = max(index - max_length // 2, 0)
-            end = min(start + max_length, len(content))
-            if index + len(needle) > end:
-                end = min(index + len(needle), len(content))
-                start = max(end - max_length, 0)
-
-            snippet = ' '.join(content[start:end].split())
-            return f'{"..." if start else ""}{snippet}{"..." if end < len(content) else ""}'
-
-    return None
 
 
 async def get_chat_config_values() -> dict:
@@ -832,6 +800,7 @@ async def create_new_chat(
         )
 
     try:
+        set_message_authors(form_data.chat, user)
         chat = await Chats.insert_new_chat(str(uuid4()), user.id, form_data, db=db)
         await publish_event(
             request,
@@ -863,7 +832,12 @@ async def import_chats(
     await require_chat_import_permission(request, user, db)
 
     try:
+        for chat_form in form_data.chats:
+            set_message_authors(chat_form.chat, user)
         chats = await Chats.import_chats(user.id, form_data.chats, db=db)
+        await Tags.ensure_tags_exist(
+            list({tag_id for chat in chats for tag_id in (chat.meta or {}).get('tags', [])}), user.id, db=db
+        )
         await publish_event(
             request,
             EVENTS.CHAT_IMPORTED,
@@ -937,32 +911,29 @@ async def search_user_chats(
     limit = 60
     skip = (page - 1) * limit
 
-    search_text = chat_search_content_text(text)
-    chat_list = []
-    for chat in await Chats.get_chats_by_user_id_and_search_text(user.id, text, skip=skip, limit=limit, db=db):
-        # Explicit fields: model_dump() would deep-copy the entire chat blob per row
-        chat_list.append(
-            ChatTitleIdResponse(
-                id=chat.id,
-                title=chat.title,
-                updated_at=chat.updated_at,
-                created_at=chat.created_at,
-                last_read_at=chat.last_read_at,
-                snippet=chat_search_snippet(chat.chat, search_text),
-                archived=chat.archived,
-            )
-        )
+    chat_list = await Chats.get_chats_by_user_id_and_search_text(user.id, text, skip=skip, limit=limit, db=db)
 
     # Delete tag if no chat is found
     words = text.strip().split(' ')
     if page == 1 and len(words) == 1 and words[0].startswith('tag:'):
         tag_id = words[0].replace('tag:', '')
-        if len(chat_list) == 0:
+        if len(chat_list) == 0 and await Chats.count_chats_by_tag_name_and_user_id(tag_id, user.id, db=db) == 0:
             if await Tags.get_tag_by_name_and_user_id(tag_id, user.id, db=db):
                 log.debug('deleting tag: %s', tag_id)
                 await Tags.delete_tag_by_name_and_user_id(tag_id, user.id, db=db)
 
     return await add_active_state_to_chat_list(request, chat_list)
+
+
+@router.get('/{id}/search/snippet', response_model=str | None)
+async def get_chat_search_snippet(
+    id: str,
+    text: str,
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    snippets = await Chats.get_chat_search_snippets([id], user.id, text, db=db)
+    return snippets.get(id)
 
 
 ############################
@@ -1449,8 +1420,22 @@ async def update_chat_by_id(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    chat = await Chats.get_chat_by_id_and_user_id(id, user.id, db=db)
+    chat = await Chats.get_chat_by_id(id, db=db)
+    if chat and chat.user_id != user.id:
+        folder = await Folders.get_folder_by_id_and_user_id(chat.folder_id, user.id, db=db) if chat.folder_id else None
+        if (
+            not folder
+            or set(form_data.chat) != {'title'}
+            or form_data.variables is not None
+            or form_data.folder_id is not None
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+        title = form_data.chat['title']
+        if not isinstance(title, str) or not title.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT('Invalid title'))
+        form_data.chat['title'] = title.strip()
     if chat:
+        set_message_authors(form_data.chat, user)
         touch = 'history' in form_data.chat or 'messages' in form_data.chat
         chat = await Chats.update_chat_by_id(id, form_data.chat, db=db, touch=touch)
         if form_data.variables is not None:
@@ -1471,12 +1456,47 @@ async def update_chat_by_id(
             subject_id=id,
             data={'title': chat.title},
         )
+        if chat.user_id != user.id:
+            return await shared_chat_response(chat, user, db=db)
         return ChatResponse.model_validate(chat, from_attributes=True)
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+
+############################
+# UpdateChatParams
+############################
+
+
+@router.patch('/{id}/params', response_model=dict)
+async def update_chat_params(
+    request: Request,
+    id: str,
+    form_data: dict,
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    if not await Chats.get_chat_by_id_and_user_id(id, user.id, db=db):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    chat = await Chats.update_chat_params_by_id(id, form_data)
+    if chat is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+
+    await publish_event(
+        request,
+        EVENTS.CHAT_UPDATED,
+        actor=user,
+        subject_id=id,
+        data={'title': chat.title},
+    )
+    return chat.chat['params']
 
 
 ############################
@@ -1837,6 +1857,13 @@ async def fork_chat_by_id(
     )
     if not is_owner:
         updated_chat = (await shared_chat_response(chat.model_copy(update={'chat': updated_chat}), user, db=db))['chat']
+        messages = list((updated_chat.get('history', {}).get('messages') or {}).values())
+        messages.extend(updated_chat.get('messages') or [])
+        for message in messages:
+            if (message.get('user_id') or chat.user_id) == chat.user_id:
+                message['user_id'] = user.id
+                if message.get('role') == 'user':
+                    message['user'] = {'id': user.id, 'name': user.name}
     meta = {
         **((chat.meta or {}) if is_owner else {}),
         'forked_from': chat.id,
@@ -1979,6 +2006,13 @@ async def clone_shared_chat_by_id(
         'branchPointMessageId': chat.chat['history']['currentId'],
         'title': f'Clone of {chat.title}',
     }
+    messages = list((updated_chat.get('history', {}).get('messages') or {}).values())
+    messages.extend(updated_chat.get('messages') or [])
+    for message in messages:
+        if (message.get('user_id') or chat.user_id) == chat.user_id:
+            message['user_id'] = user.id
+            if message.get('role') == 'user':
+                message['user'] = {'id': user.id, 'name': user.name}
 
     chats = await Chats.import_chats(
         user.id,
@@ -2149,13 +2183,12 @@ async def update_shared_chat_access_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    form_data.access_grants = await filter_allowed_access_grants(
+    form_data.access_grants = await validate_access_grants(
         await Config.get('user.permissions'),
         user.id,
         user.role,
         form_data.access_grants,
-        'sharing.public_chats',
-        'sharing.open_chats',
+        resource_type='shared_chat',
         db=db,
     )
 
@@ -2241,7 +2274,10 @@ async def update_chat_folder_id_by_id(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    chat = await Chats.get_chat_by_id_and_user_id(id, user.id, db=db)
+    chat = await Chats.get_chat_by_id(id, db=db)
+    if chat and chat.user_id != user.id:
+        if not await has_chat_move_access(user.id, chat.folder_id, form_data.folder_id, db=db):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT())
     if chat:
         # None is allowed: it moves the chat out of any folder.
         if form_data.folder_id is not None and not await has_folder_write_access(user.id, form_data.folder_id, db=db):
@@ -2258,6 +2294,8 @@ async def update_chat_folder_id_by_id(
             subject_id=id,
             data={'folder_id': form_data.folder_id},
         )
+        if chat.user_id != user.id:
+            return await shared_chat_response(chat, user, db=db)
         return ChatResponse.model_validate(chat, from_attributes=True)
     else:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT())

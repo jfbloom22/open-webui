@@ -705,6 +705,7 @@ NOTIFICATION_EVENTS = (
     EVENTS.CHANNEL_MESSAGE.name,
     EVENTS.CALENDAR_ALERT.name,
     EVENTS.RETRIEVAL_CONTENT_PROCESS_FAILED.name,
+    EVENTS.AUTOMATION_RUN_FAILED.name,
 )
 
 
@@ -1128,10 +1129,6 @@ class SocketSessionEventSink:
             EVENTS.FOLDER_UPDATED.name,
             EVENTS.FOLDER_PARENT_UPDATED.name,
             EVENTS.FOLDER_DELETED.name,
-            EVENTS.GROUP_MEMBER_REMOVED.name,
-            EVENTS.GROUP_MEMBER_ADDED.name,
-            EVENTS.GROUP_UPDATED.name,
-            EVENTS.GROUP_DELETED.name,
             EVENTS.CHAT_DELETED_ALL.name,
         }:
             await refresh_chat_access()
@@ -1140,8 +1137,11 @@ class SocketSessionEventSink:
             EVENTS.CHAT_UNSHARED.name,
             EVENTS.CHAT_FOLDER_UPDATED.name,
             EVENTS.CHAT_DELETED.name,
+            EVENTS.CHAT_ARCHIVED.name,
         }:
-            await refresh_chat_access((event.subject or {}).get('id'))
+            subject = event.subject or {}
+            # User-scoped events (archive all, unshare all) recheck every chat.
+            await refresh_chat_access(subject.get('id') if subject.get('type') == 'chat' else None)
 
         if event.event not in {EVENTS.USER_DELETED.name, EVENTS.USER_ROLE_UPDATED.name}:
             return

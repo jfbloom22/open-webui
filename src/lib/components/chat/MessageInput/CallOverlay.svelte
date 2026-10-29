@@ -46,6 +46,7 @@
 	let hasStartedSpeaking = false;
 	let mediaRecorder;
 	let audioStream = null;
+	let audioContext: AudioContext | undefined;
 	let audioChunks = [];
 	let destroyed = false;
 	let avatarView: VoiceAvatar | undefined;
@@ -358,6 +359,12 @@
 		}
 	};
 
+	// Chrome on Android caps open audio outputs at 10.
+	const closeAudioContext = () => {
+		void audioContext?.close();
+		audioContext = undefined;
+	};
+
 	const stopAudioStream = async () => {
 		try {
 			if (mediaRecorder) {
@@ -366,6 +373,8 @@
 		} catch (error) {
 			console.log('Error stopping audio stream:', error);
 		}
+
+		closeAudioContext();
 
 		if (!audioStream) return;
 
@@ -387,7 +396,8 @@
 	};
 
 	const analyseAudio = (stream) => {
-		const audioContext = new AudioContext();
+		closeAudioContext();
+		audioContext = new AudioContext();
 		const audioStreamSource = audioContext.createMediaStreamSource(stream);
 
 		const analyser = audioContext.createAnalyser();
@@ -1129,16 +1139,15 @@
 		</div>
 
 		<div class="flex flex-col items-center gap-4 pb-4 w-full">
-			<button
-				type="button"
-				class="z-10"
-				on:click={() => {
-					if (assistantSpeaking) {
-						stopAllAudio();
-					}
-				}}
-			>
-				<div class="line-clamp-1 text-sm font-normal" role="status" aria-live="polite">
+			<div class="z-10 line-clamp-1 text-sm font-normal" role="status" aria-live="polite">
+				<button
+					type="button"
+					on:click={() => {
+						if (assistantSpeaking) {
+							stopAllAudio();
+						}
+					}}
+				>
 					{#if bridge?.connecting}
 						{$i18n.t('Connecting')}
 					{:else if bridge?.approval}
@@ -1152,8 +1161,8 @@
 					{:else}
 						{$i18n.t('Listening...')}
 					{/if}
-				</div>
-			</button>
+				</button>
+			</div>
 
 			<div class="flex items-center justify-center gap-4 z-10">
 				{#if camera}

@@ -90,6 +90,7 @@
 
 	let loaded = false;
 	let draggedOver = false;
+	let shiftKey = false;
 
 	let recording = false;
 	let content = '';
@@ -411,7 +412,7 @@
 		const compressImageHandler = async (imageUrl: string, settings: any = {}, config: any = {}) => {
 			// Quick shortcut so we don’t do unnecessary work.
 			const settingsCompression =
-				(settings?.imageCompression && settings?.imageCompressionInChannels) ?? false;
+				(settings?.imageCompression ?? false) && (settings?.imageCompressionInChannels ?? true);
 			const configWidth = config?.file?.image_compression?.width ?? null;
 			const configHeight = config?.file?.image_compression?.height ?? null;
 
@@ -542,9 +543,23 @@
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
+		if (event.key === 'Shift') {
+			shiftKey = true;
+		}
+
 		if (event.key === 'Escape') {
 			draggedOver = false;
 		}
+	};
+
+	const handleKeyUp = (event: KeyboardEvent) => {
+		if (event.key === 'Shift') {
+			shiftKey = false;
+		}
+	};
+
+	const handleBlur = () => {
+		shiftKey = false;
 	};
 
 	const onDragOver = (e: DragEvent) => {
@@ -674,7 +689,8 @@
 		}
 
 		await tick();
-		if (!isDestroyed && targetQueueKey === queueKey) chatInputElement?.focus();
+		if (!isDestroyed && targetQueueKey === queueKey)
+			chatInputElement?.focus({ preventScroll: true });
 	};
 
 	$: if (content) {
@@ -710,6 +726,24 @@
 				: []),
 			{
 				char: '/',
+				command: ({ editor, range, props }) => {
+					if (props?.type === 'prompt') {
+						void insertTextAtCursor(props.content ?? '');
+						return;
+					}
+
+					editor
+						.chain()
+						.focus()
+						.insertContentAt(range, [
+							{
+								type: 'mention',
+								attrs: { ...props, mentionSuggestionChar: '/' }
+							},
+							{ type: 'text', text: ' ' }
+						])
+						.run();
+				},
 				render: getSuggestionRenderer(CommandSuggestionList, {
 					i18n,
 					onSelect: (e) => {
@@ -773,6 +807,8 @@
 		}, 100);
 
 		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('keyup', handleKeyUp);
+		window.addEventListener('blur', handleBlur);
 
 		let dropzoneElement: HTMLElement | null = null;
 		const initialize = async () => {
@@ -793,6 +829,8 @@
 			isDestroyed = true;
 
 			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('keyup', handleKeyUp);
+			window.removeEventListener('blur', handleBlur);
 
 			if (dropzoneElement) {
 				dropzoneElement.removeEventListener('dragover', onDragOver);
@@ -945,7 +983,11 @@
 						<div
 							id="message-input-container"
 							class="flex-1 flex flex-col relative w-full shadow-sm rounded-2xl border border-gray-100/60 dark:border-gray-800/50 hover:border-gray-100 focus-within:border-gray-100 hover:dark:border-gray-800 focus-within:dark:border-gray-800 transition bg-white dark:bg-gray-400/5 dark:text-gray-100"
-							dir={$settings?.chatDirection ?? 'auto'}
+							dir={$settings?.chatDirection === 'RTL'
+								? 'rtl'
+								: $settings?.chatDirection === 'LTR'
+									? 'ltr'
+									: 'auto'}
 						>
 							{#if replyToMessage !== null}
 								<div class="px-3 pt-2 text-left w-full flex flex-col z-10">
@@ -1062,7 +1104,7 @@
 													navigator.maxTouchPoints > 0 ||
 													navigator.msMaxTouchPoints > 0
 												)}
-											largeTextAsFile={$settings?.largeTextAsFile ?? false}
+											largeTextAsFile={($settings?.largeTextAsFile ?? false) && !shiftKey}
 											floatingMenuPlacement={'top-start'}
 											{suggestions}
 											on:pasted={resolveInputMentions}
@@ -1073,6 +1115,10 @@
 											}}
 											on:keydown={async (e) => {
 												e = e.detail.event;
+												// IME confirmation must finish before a shortcut can send and clear the editor.
+												if (e.isComposing || e.keyCode === 229 || inputEditor?.view.composing)
+													return;
+
 												const isCtrlPressed = e.ctrlKey || e.metaKey; // metaKey is for Cmd key on Mac
 
 												const suggestionsContainerElement =
@@ -1140,7 +1186,7 @@
 												if (clipboardData && clipboardData.items) {
 													for (const item of clipboardData.items) {
 														if (item.type === 'text/plain') {
-															if ($settings?.largeTextAsFile ?? false) {
+															if (($settings?.largeTextAsFile ?? false) && !shiftKey) {
 																const text = clipboardData.getData('text/plain');
 
 																if (text.length > PASTED_TEXT_CHARACTER_LIMIT) {

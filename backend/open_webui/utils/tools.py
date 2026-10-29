@@ -56,6 +56,7 @@ from open_webui.tools.builtin import (
     delete_automation,
     delete_calendar_event,
     delete_memory,
+    display_file,
     edit_image,
     execute_code,
     fetch_url,
@@ -257,7 +258,6 @@ async def connect_mcp_server(
             tool_specs = [spec for spec in tool_specs if is_string_allowed(spec['name'], function_name_filter_list)]
         return client, tool_specs
     except BaseException:
-        # MCP sessions must be closed in the same task that opened them.
         await client.disconnect()
         raise
 
@@ -451,6 +451,7 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                     # Prepend tool ID to function name
                     function_name = f'{tool_id}_{function_name}'
 
+                tool_dict['spec'] = {**tool_dict['spec'], 'name': function_name}
                 tools_dict[function_name] = tool_dict
         else:
             if tool_id.startswith('server:'):
@@ -551,6 +552,7 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                             # Prepend server ID to function name
                             function_name = f'{server_id}_{function_name}'
 
+                        tool_dict['spec'] = {**tool_dict['spec'], 'name': function_name}
                         tools_dict[function_name] = tool_dict
 
                 else:
@@ -714,7 +716,7 @@ async def get_builtin_tools(
         and has_chat_files
         and await has_user_chat_permission('file_upload')
     ):
-        builtin_functions.extend([list_chat_files, query_chat_files, grep_chat_files, view_file])
+        builtin_functions.extend([list_chat_files, query_chat_files, grep_chat_files, view_file, display_file])
 
     # Knowledge base tools - conditional injection based on model knowledge
     # If model has attached knowledge (any type), only provide query_knowledge_files
@@ -726,6 +728,7 @@ async def get_builtin_tools(
         if ENABLE_KB_EXEC:
             builtin_functions.append(kb_exec)
             builtin_functions.append(query_knowledge_files)
+            builtin_functions.append(display_file)
             # Notes attached to the model need view_note since kb_exec is file-only
             if model_knowledge:
                 knowledge_types = {item.get('type') for item in model_knowledge}
@@ -741,7 +744,7 @@ async def get_builtin_tools(
 
             knowledge_types = {item.get('type') for item in model_knowledge}
             if 'file' in knowledge_types or 'collection' in knowledge_types:
-                builtin_functions.extend([view_file, view_knowledge_file])
+                builtin_functions.extend([view_file, view_knowledge_file, display_file])
             if 'note' in knowledge_types:
                 builtin_functions.append(view_note)
         else:
@@ -754,6 +757,7 @@ async def get_builtin_tools(
                     search_knowledge_files,
                     query_knowledge_files,
                     view_knowledge_file,
+                    display_file,
                 ]
             )
 
@@ -1074,32 +1078,6 @@ def clean_openai_tool_schema(spec: dict) -> dict:
     return cleaned_spec
 
 
-def add_terminal_display_file_inline_param(spec: dict) -> dict:
-    spec = copy.deepcopy(spec)
-    if spec.get('name') != 'display_file':
-        return spec
-
-    spec['description'] = (
-        f'{spec.get("description", "")} '
-        'Set inline=true when the file should be shown inline in the chat message instead of opening the file viewer. '
-        'Set page for PDF, DOCX, and PPTX files when you want the preview to open at a specific 1-based page or slide. '
-        'After display_file succeeds, do not display the same file again or emit Markdown for it.'
-    ).strip()
-    parameters = spec.setdefault('parameters', {'type': 'object', 'properties': {}, 'required': []})
-    parameters.setdefault('type', 'object')
-    properties = parameters.setdefault('properties', {})
-    properties['inline'] = {
-        'type': 'boolean',
-        'description': 'Show the file inline in the chat message instead of opening the file viewer.',
-    }
-    properties['page'] = {
-        'type': 'integer',
-        'minimum': 1,
-        'description': 'For PDF, DOCX, and PPTX files, open the preview at this 1-based page or slide number.',
-    }
-    return spec
-
-
 @cache
 def get_builtin_function_introspection(func: Callable):
     try:
@@ -1283,7 +1261,7 @@ def convert_openapi_to_tool_payload(openapi_spec):
                             tool['parameters']['properties'].update(resolved_schema['properties'])
                             if 'required' in resolved_schema:
                                 tool['parameters']['required'] = list(
-                                    set(tool['parameters']['required'] + resolved_schema['required'])
+                                    dict.fromkeys(tool['parameters']['required'] + resolved_schema['required'])
                                 )
                         elif resolved_schema.get('type') == 'array':
                             tool['parameters'] = resolved_schema  # special case for array
@@ -1325,7 +1303,13 @@ async def get_tool_servers(request: Request):
                 data = await request.app.state.redis.get(f'{REDIS_KEY_PREFIX}:tool_servers')
                 if data is not None:
                     tool_servers = JSONCodec.loads(data)
-                    request.app.state.TOOL_SERVERS = tool_servers
+                    if tool_servers or not any(
+                        connection.get('config', {}).get('enable') and connection.get('type', 'openapi') == 'openapi'
+                        for connection in await Config.get('tool_server.connections', []) or []
+                    ):
+                        request.app.state.TOOL_SERVERS = tool_servers
+                    else:
+                        tool_servers = None
             except Exception as e:
                 log.error(f'Error fetching tool_servers from Redis: {e}')
 
@@ -1580,7 +1564,9 @@ async def get_terminal_tools(
     tools_dict = {}
     for spec in specs:
         function_name = spec['name']
-        tool_spec = clean_openai_tool_schema(add_terminal_display_file_inline_param(spec))
+        tool_spec = clean_openai_tool_schema(
+            get_builtin_tool_spec(display_file) if function_name == 'display_file' else spec
+        )
 
         if function_name == 'run_command' and terminal_cwd:
             tool_spec['description'] = (
@@ -1741,9 +1727,7 @@ async def get_tool_servers_data(servers: list[dict[str, Any]]) -> list[dict[str,
         response = {
             'openapi': response,
             'info': response.get('info', {}),
-            'specs': [
-                add_terminal_display_file_inline_param(spec) for spec in convert_openapi_to_tool_payload(response)
-            ],
+            'specs': convert_openapi_to_tool_payload(response),
         }
 
         openapi_data = response.get('openapi', {})
@@ -1861,7 +1845,7 @@ async def execute_tool_server(
             final_url = final_url.replace(f'{{{key}}}', quote(str(value), safe=''))
 
         if query_params:
-            final_url = f'{final_url}?{urlencode(query_params)}'
+            final_url = f'{final_url}?{urlencode(query_params, doseq=True)}'
 
         request_body_content = operation.get('requestBody', {}).get('content')
         if request_body_content and params:

@@ -19,6 +19,7 @@
 	import { getLanguages } from '$lib/i18n';
 	import {
 		getBaseModelTags,
+		updateModelAccessGrants,
 		getModelTags,
 		type ModelHistoryEntry,
 		type ModelSnapshot
@@ -42,6 +43,7 @@
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import ModelSettingsSection from './ModelSettingsSection.svelte';
+	import ProviderDetails from './ProviderDetails.svelte';
 	import LanguageModeSelect from '$lib/components/common/LanguageModeSelect.svelte';
 	import LocalizedPromptSuggestions from './LocalizedPromptSuggestions.svelte';
 	import PromptSuggestions from './PromptSuggestions.svelte';
@@ -67,10 +69,12 @@
 	const formId = `model-editor-${uuidv4()}`;
 
 	export let onSubmit: Function = () => {};
+	export let onAccessUpdate: Function = () => {};
 	export let readOnly = false;
 	export let onBack: null | Function = null;
 
 	export let model: any = null;
+	export let providerModel: unknown = null;
 	export let edit = false;
 	export let admin = false;
 
@@ -208,6 +212,10 @@
 	let params: Record<string, any> = {
 		system: ''
 	};
+	$: reportedModel =
+		providerModel ??
+		$models.find((entry) => entry.id === (info.base_model_id || id)) ??
+		(info.base_model_id ? null : model);
 
 	$: modifiedParamCount = Object.entries(params).reduce((count, [key, value]) => {
 		if (key === 'system' || key === 'model_controls') return count;
@@ -230,8 +238,10 @@
 	let builtinTools = {};
 
 	let actionIds = [];
-	let accessGrants = [];
+	let accessGrants: any[] = [];
 	let terminalId = '';
+	$: hasTerminal =
+		$config?.features?.enable_terminal_servers || $config?.features?.enable_direct_integrations;
 	let tts = { voice: '' };
 	let voice = { voice: '' };
 	export let suggestionTags: { name: string }[] = [];
@@ -327,6 +337,9 @@
 
 	$: chatVariablesPreview = getChatVariablesPreview(system ?? '');
 
+	$: includeHidden =
+		$user?.role === 'admin' || ($user?.permissions?.workspace?.models_hidden ?? false);
+
 	const getBaseModelItems = (models: any[] = []) => {
 		const currentModelId = (model as any)?.id;
 
@@ -339,7 +352,7 @@
 					(!baseModel?.preset || (edit && baseModel.id === info.base_model_id)) &&
 					baseModel?.owned_by !== 'arena' &&
 					!(baseModel?.direct ?? false) &&
-					($user?.role === 'admin' ||
+					(includeHidden ||
 						!(baseModel?.info?.meta?.hidden ?? false) ||
 						baseModel.id === info.base_model_id)
 			)
@@ -392,7 +405,8 @@
 
 		modelInfo.params = { ...modelInfo.params, ...params };
 
-		modelInfo.access_grants = accessGrants;
+		if (edit) delete modelInfo.access_grants;
+		else modelInfo.access_grants = accessGrants;
 		modelInfo.meta.capabilities = capabilities;
 
 		if (enableDescription) {
@@ -450,7 +464,7 @@
 			}
 		}
 
-		if (defaultFeatureIds.length > 0) {
+		if (defaultFeatureIds.length > 0 || defaultMeta.defaultFeatureIds?.length > 0) {
 			modelInfo.meta.defaultFeatureIds = defaultFeatureIds;
 		} else {
 			if (modelInfo.meta.defaultFeatureIds) {
@@ -458,7 +472,10 @@
 			}
 		}
 
-		if (Object.keys(builtinTools).length > 0) {
+		if (
+			Object.keys(builtinTools).length > 0 ||
+			Object.keys(defaultMeta.builtinTools ?? {}).length > 0
+		) {
 			modelInfo.meta.builtinTools = builtinTools;
 		} else {
 			if (modelInfo.meta.builtinTools) {
@@ -822,6 +839,7 @@
 		}}
 	/>
 	<AccessControlModal
+		disabled={loading}
 		bind:show={showAccessControlModal}
 		bind:accessGrants
 		accessRoles={preset ? ['read', 'write'] : ['read']}
@@ -830,6 +848,28 @@
 		shareUsers={($user?.permissions?.access_grants?.allow_users ?? true) || $user?.role === 'admin'}
 		allowGroups={($user?.permissions?.access_grants?.allow_groups ?? true) ||
 			$user?.role === 'admin'}
+		onChange={async (grants) => {
+			if (edit && model?.id) {
+				loading = true;
+				try {
+					const saved = await updateModelAccessGrants(
+						localStorage.token,
+						model.id,
+						model.name,
+						grants
+					);
+					model.access_grants = structuredClone(saved.access_grants);
+					accessGrants = structuredClone(saved.access_grants);
+					onAccessUpdate(saved);
+					toast.success($i18n.t('Saved'));
+				} catch (error) {
+					accessGrants = structuredClone(model.access_grants ?? []);
+					toast.error(`${error?.detail ?? error}`);
+				} finally {
+					loading = false;
+				}
+			}
+		}}
 	/>
 
 	<div class="flex h-full min-h-0 w-full flex-col">
@@ -868,7 +908,9 @@
 						{translatedLocales}
 						className="w-fit"
 					/>
-					<AccessButton on:click={() => (showAccessControlModal = true)} />
+					{#if $user?.permissions?.sharing?.models || $user?.role === 'admin'}
+						<AccessButton on:click={() => (showAccessControlModal = true)} />
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -1095,7 +1137,9 @@
 											<div class="flex min-w-0 items-center gap-2">
 												{#if editingLocale}
 													<input
-														class="min-w-0 flex-1 bg-transparent text-base leading-tight text-gray-900 outline-hidden placeholder:text-gray-300 dark:text-white dark:placeholder:text-gray-700 md:text-lg"
+														class="min-w-0 flex-1 {($settings?.highContrastMode ?? false)
+															? 'min-h-6'
+															: ''} bg-transparent text-base leading-tight text-gray-900 outline-hidden placeholder:text-gray-300 dark:text-white dark:placeholder:text-gray-700 md:text-lg"
 														placeholder={name || $i18n.t('Model Name')}
 														value={localizedField('name')}
 														on:input={(e) =>
@@ -1106,7 +1150,9 @@
 													/>
 												{:else}
 													<input
-														class="min-w-0 flex-1 bg-transparent text-base leading-tight text-gray-900 outline-hidden placeholder:text-gray-300 dark:text-white dark:placeholder:text-gray-700 md:text-lg"
+														class="min-w-0 flex-1 {($settings?.highContrastMode ?? false)
+															? 'min-h-6'
+															: ''} bg-transparent text-base leading-tight text-gray-900 outline-hidden placeholder:text-gray-300 dark:text-white dark:placeholder:text-gray-700 md:text-lg"
 														placeholder={$i18n.t('Model Name')}
 														bind:value={name}
 														required
@@ -1174,7 +1220,9 @@
 											{/if}
 
 											<input
-												class="block w-full bg-transparent py-0.5 text-xs text-gray-500 outline-hidden placeholder:text-gray-300 dark:text-gray-500 dark:placeholder:text-gray-700"
+												class="block w-full {($settings?.highContrastMode ?? false)
+													? 'min-h-6'
+													: ''} bg-transparent py-0.5 text-xs text-gray-500 outline-hidden placeholder:text-gray-300 dark:text-gray-500 dark:placeholder:text-gray-700"
 												placeholder={$i18n.t('Model ID')}
 												bind:value={id}
 												disabled={edit}
@@ -1208,13 +1256,13 @@
 												{/if}
 											</div>
 										{:else}
+											<!-- Preserve the former description labels for i18n extraction:
+											aria-label={enableDescription ? $i18n.t('Custom description enabled') : $i18n.t('Default description enabled')}
+											-->
 											<button
 												class="grid w-full grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 rounded-sm text-start text-xs font-normal text-gray-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 sm:grid-cols-[8rem_minmax(0,1fr)]"
 												type="button"
 												aria-pressed={enableDescription ? 'true' : 'false'}
-												aria-label={enableDescription
-													? $i18n.t('Custom description enabled')
-													: $i18n.t('Default description enabled')}
 												on:click={() => {
 													enableDescription = !enableDescription;
 												}}
@@ -1276,7 +1324,7 @@
 													items={getBaseModelItems($models)}
 													triggerClassName="text-xs font-normal text-gray-900 dark:text-gray-100"
 													selectionOnly
-													includeHidden={$user?.role === 'admin'}
+													{includeHidden}
 													bind:value={info.base_model_id}
 												/>
 											</div>
@@ -1318,6 +1366,11 @@
 						</fieldset>
 
 						<div class="px-2.5 md:px-4">
+							{#if $user?.role === 'admin' && !readOnly}
+								<div class="mt-2">
+									<ProviderDetails model={reportedModel} />
+								</div>
+							{/if}
 							<section class="mt-4">
 								<div class="space-y-2 px-1">
 									<div
@@ -1692,7 +1745,7 @@
 											/>
 										</div>
 									</ModelSettingsSection>
-									{#if capabilities.terminal}
+									{#if capabilities.terminal && hasTerminal}
 										<TerminalSelector bind:terminalId />
 									{/if}
 								</div>
@@ -1700,7 +1753,9 @@
 
 							<div class="my-2 text-xs text-gray-400 dark:text-gray-500">
 								<div
-									class="flex w-full items-center gap-2 opacity-30 transition-opacity hover:opacity-60 focus-within:opacity-60"
+									class="flex w-full items-center gap-2 {($settings?.highContrastMode ?? false)
+										? ''
+										: 'opacity-30 transition-opacity hover:opacity-60 focus-within:opacity-60'}"
 								>
 									<button
 										type="button"

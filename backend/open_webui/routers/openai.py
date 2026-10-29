@@ -42,7 +42,7 @@ from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import get_headers_and_cookies, include_user_info_headers
 from open_webui.utils.json_codec import JSONCodec
-from open_webui.utils.misc import convert_logit_bias_input_to_json
+from open_webui.utils.misc import convert_logit_bias_input_to_json, get_provider_function
 from open_webui.utils.model_ids import strip_provider_model_prefix
 from open_webui.utils.payload import (
     apply_model_params_to_body_openai,
@@ -1173,23 +1173,23 @@ RESPONSES_ALLOWED_FIELDS: dict[str, set[str]] = {
     'message': {'type', 'role', 'content'},
     'function_call': {'type', 'call_id', 'name', 'arguments', 'id'},
     'function_call_output': {'type', 'call_id', 'output'},
+    'reasoning': {'type', 'id', 'summary', 'encrypted_content', 'content'},
 }
 
 
 def _normalize_stored_item(item: dict) -> dict:
-    """Strip local-only fields from a stored output item before replaying it.
+    """Keep replayable fields for known output item types.
 
-    Open WebUI stores extra bookkeeping fields (``id``, ``status``,
-    ``started_at``, ``ended_at``, ``duration``, ``_tag_type``,
-    ``attributes``, ``summary``, etc.) that the Responses API does
-    not accept.  This helper returns a copy containing only the
-    fields the API understands.
+    Stored items also contain UI bookkeeping and output-only metadata.
+    In particular, Azure rejects ``status`` on reasoning input items.
     """
     item_type = item.get('type', '')
     allowed = RESPONSES_ALLOWED_FIELDS.get(item_type)
     if allowed is None:
-        # Unknown type — pass through as-is (e.g. reasoning, extension items).
+        # Unknown type — pass through as-is for provider extensions.
         return item
+    if item_type == 'function_call':
+        item = {**item, **get_provider_function(item)}
     return {k: v for k, v in item.items() if k in allowed}
 
 
@@ -1432,6 +1432,9 @@ async def generate_chat_completion(
     metadata = payload.pop('metadata', None)
 
     model_id = form_data.get('model')
+    # keep the model the client asked for when reached from /api/chat/completions
+    if not hasattr(request.state, 'model_id'):
+        request.state.model_id = model_id
     model_info = await Models.get_model_by_id(model_id)
 
     # Check model info and override the payload
@@ -1690,8 +1693,6 @@ async def embeddings(request: Request, form_data: dict, user):
         dict: OpenAI-compatible embeddings response.
     """
     idx = 0
-    # Prepare payload/body
-    body = JSONCodec.dumps(form_data)
     # Find correct backend url/key based on model
     model_id = form_data.get('model')
     # Check if model is already in app state cache to avoid expensive get_all_models() call
@@ -1703,6 +1704,10 @@ async def embeddings(request: Request, form_data: dict, user):
         idx = models[model_id]['urlIdx']
 
     url, key, api_config = await get_openai_connection(idx)
+
+    form_data['model'] = strip_provider_model_prefix(form_data['model'], api_config.get('prefix_id'))
+    # Prepare payload/body
+    body = JSONCodec.dumps(form_data)
 
     r = None
     streaming = False
@@ -1819,6 +1824,7 @@ async def responses(
 
     idx = 0
     model_id = form_data.model
+    request.state.model_id = model_id
 
     # Enforce per-model access control
     await check_model_access(user, await Models.get_model_by_id(model_id), BYPASS_MODEL_ACCESS_CONTROL)
@@ -1942,6 +1948,7 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
 
     idx = 0
     model_id = payload.get('model') if isinstance(payload, dict) else None
+    request.state.model_id = model_id
     if model_id:
         models = request.app.state.OPENAI_MODELS
         if not models or model_id not in models:

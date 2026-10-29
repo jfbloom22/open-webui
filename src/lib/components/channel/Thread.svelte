@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 
 	import { socket, user } from '$lib/stores';
 
@@ -21,6 +22,8 @@
 	export let onPin = () => {};
 
 	let messages = null;
+	let searchAnchor = '';
+	let loading = null;
 	let top = false;
 
 	let messagesContainerElement = null;
@@ -32,7 +35,11 @@
 	let typingUsersTimeout = {};
 
 	$: if (threadId) {
-		initHandler();
+		initHandler(
+			$page.url.searchParams.get('thread') === threadId
+				? ($page.url.searchParams.get('message') ?? '')
+				: ''
+		);
 	}
 
 	const scrollToBottom = () => {
@@ -41,22 +48,40 @@
 		}
 	};
 
-	const initHandler = async () => {
+	const initHandler = async (anchor = '') => {
+		loading = null;
+		searchAnchor = anchor;
 		messages = null;
 		top = false;
+		replyToMessage = null;
 
 		typingUsers = [];
 		typingUsersTimeout = {};
 
 		if (channel) {
-			messages = await getChannelThreadMessages(localStorage.token, channel.id, threadId);
+			loading = getChannelThreadMessages(localStorage.token, channel.id, threadId, 0, 50, {
+				around: anchor
+			}).catch((error) => {
+				if (request === loading) toast.error(String(error));
+				return [];
+			});
+			const request = loading;
+			const loaded = await request;
+			if (request !== loading) return;
+			messages = loaded ?? [];
 
 			if (messages.length < 50) {
 				top = true;
 			}
 
 			await tick();
-			scrollToBottom();
+			if (anchor) {
+				const element = document.getElementById(`message-${threadId}-${anchor}`);
+				element?.scrollIntoView({ block: 'center' });
+				element?.animate([{ backgroundColor: '#a5a5c544' }, { backgroundColor: 'transparent' }], {
+					duration: 2200
+				});
+			} else scrollToBottom();
 		} else {
 			goto('/');
 		}
@@ -68,9 +93,15 @@
 			const type = event?.data?.type ?? null;
 			const data = event?.data?.data ?? null;
 
+			if (messages === null && type !== 'typing') {
+				const request = loading;
+				await request;
+				if (request !== loading) return;
+			}
+
 			if (type === 'message') {
 				if ((data?.parent_id ?? null) === threadId) {
-					if (messages) {
+					if (messages && !messages.some((message) => message.id === data.id)) {
 						messages = [{ ...data, temp_id: null }, ...messages];
 
 						if (typingUsers.find((user) => user.id === event.user.id)) {
@@ -187,6 +218,7 @@
 	});
 
 	onDestroy(() => {
+		loading = null;
 		$socket?.off('events:channel', channelEventHandler);
 	});
 </script>
@@ -217,6 +249,12 @@
 			bind:this={messagesContainerElement}
 		>
 			<div class="pt-3">
+				{#if searchAnchor}<div class="px-3 py-2 text-xs text-gray-500 flex justify-between">
+						<span>{$i18n.t('Showing search match')}</span><button
+							class="underline"
+							on:click={() => initHandler()}>{$i18n.t('Latest replies')}</button
+						>
+					</div>{/if}
 				{#if messages !== null}
 					<Messages
 						id={threadId}
@@ -237,10 +275,17 @@
 								localStorage.token,
 								channel.id,
 								threadId,
-								messages.length
+								searchAnchor ? 0 : messages.length,
+								50,
+								searchAnchor ? { before: messages[messages.length - 1]?.id } : {}
 							);
 
-							messages = [...messages, ...newMessages];
+							messages = [
+								...messages,
+								...newMessages.filter(
+									(item) => !messages.some((existing) => existing.id === item.id)
+								)
+							];
 
 							if (newMessages.length < 50) {
 								top = true;

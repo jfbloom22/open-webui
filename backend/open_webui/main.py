@@ -177,6 +177,7 @@ from open_webui.routers import (
     prompts,
     retrieval,
     scim,
+    search,
     skills,
     tasks,
     terminals,
@@ -894,6 +895,7 @@ app.include_router(apps.router, prefix='/api/v1/apps', tags=['apps'])
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
 app.include_router(chats.router, prefix='/api/v1/chats', tags=['chats'])
 app.include_router(notes.router, prefix='/api/v1/notes', tags=['notes'])
+app.include_router(search.router, prefix='/api/v1/search', tags=['search'])
 
 
 app.include_router(models.router, prefix='/api/v1/models', tags=['models'])
@@ -1152,6 +1154,7 @@ async def chat_completion(
         await get_all_models(request, user=user)
 
     model_id = form_data.get('model', None)
+    request.state.model_id = model_id
     model_item = form_data.pop('model_item', {})
     tasks = form_data.pop('background_tasks', None)
 
@@ -1214,12 +1217,6 @@ async def chat_completion(
         if not isinstance(model_controls, dict):
             raise HTTPException(400, 'Model control options must be keyed by model.')
         model_controls = {} if form_data.get('automation_id') else model_controls
-        if any(model_controls.values()) and user.role != 'admin':
-            permissions = await Config.get('user.permissions')
-            for permission in ('chat.controls', 'chat.params'):
-                if not await has_permission(user.id, permission, permissions):
-                    model_controls = {}
-                    break
         if missing_base_model and model_controls.get(model_id):
             raise HTTPException(400, 'Model control options cannot be applied to the fallback model.')
         if model_info_params or request_params:
@@ -1301,6 +1298,8 @@ async def chat_completion(
             )
         ):
             tool_servers = None
+        if tool_servers and not await Config.get('direct.integrations.enable', False):
+            tool_servers = None
 
         automation_id = form_data.pop('automation_id', None)
         tool_approval_mode = (
@@ -1326,6 +1325,7 @@ async def chat_completion(
             'user_message': user_message,
             'user_message_id': user_message.get('id') if user_message else None,
             'assistant_message_id': form_data.pop('assistant_message_id', None),
+            'regeneration_message_id': form_data.pop('regeneration_message_id', None),
             'session_id': form_data.pop('session_id', None),
             'automation_id': automation_id,
             'folder_id': form_data.pop('folder_id', None),
@@ -1645,6 +1645,17 @@ async def chat_completion(
         error_detail = None
         try:
             try:
+                if is_saved_chat_id(metadata.get('chat_id')) and metadata.get('message_id'):
+                    async with Chats.edit_message_output(metadata['chat_id'], metadata['message_id']) as message:
+                        if message is not None:
+                            response_meta = dict(message.get('meta') or {})
+                            # Continuations retain the original start, including approval pauses.
+                            # A historical response without a recorded start remains unknown.
+                            if not metadata.get('assistant_message_id'):
+                                response_meta['response_started_at'] = time.time()
+                            response_meta.pop('response_ended_at', None)
+                            message['meta'] = response_meta
+                            message['done'] = False
                 if not metadata.get('direct'):
                     target = (
                         model_info
@@ -1686,6 +1697,15 @@ async def chat_completion(
                 try:
 
                     async def emit_cancel_event():
+                        if is_saved_chat_id(metadata.get('chat_id')) and metadata.get('message_id'):
+                            async with Chats.edit_message_output(
+                                metadata['chat_id'], metadata['message_id']
+                            ) as message:
+                                if message is not None:
+                                    response_meta = dict(message.get('meta') or {})
+                                    response_meta.setdefault('response_ended_at', time.time())
+                                    message['meta'] = response_meta
+                                    message['done'] = True
                         event_emitter = await get_event_emitter(metadata)
                         if event_emitter:
                             await event_emitter({'type': 'chat:tasks:cancel'})
@@ -1711,6 +1731,7 @@ async def chat_completion(
                                         'parentId': metadata.get('user_message_id'),
                                         'error': {'content': error_detail},
                                         'done': True,
+                                        'meta': {'response_ended_at': time.time()},
                                     },
                                 )
                             except Exception:
@@ -1736,15 +1757,6 @@ async def chat_completion(
             # Clean up MCP clients.  Each client is isolated so one
             # failure doesn't skip the rest.
             #
-            # NOTE: asyncio.wait_for() / asyncio.shield() must NOT be used
-            # here — they create new asyncio Tasks, which violate anyio
-            # cancel-scope task-ownership rules when the MCPClient's
-            # exit_stack contains anyio transport resources (streamable_http).
-            # Exiting those cancel scopes from the wrong task raises
-            # "Attempted to exit a cancel scope that isn't the current
-            # task's current cancel scope", which propagates as a
-            # BaseException through the finally block, discards the response
-            # return value, and surfaces as a 500 "No response returned."
             # MCPClient.disconnect() suppresses known transport teardown errors
             # while still propagating real task cancellation.
             try:
@@ -1813,7 +1825,7 @@ async def chat_completion(
 
     # Fan out: one task per model
     if metadata.get('session_id') and metadata.get('chat_id'):
-        task_ids = []
+        chat_tasks = {}
         subagent_results = []
         is_internal = getattr(request.state, 'internal', False) is True
         chat_id = metadata['chat_id']
@@ -1869,13 +1881,13 @@ async def chat_completion(
                 subagent_results.append(await process)
                 continue
 
-            task_id, _ = await create_task(
+            task_id, task = await create_task(
                 request.app.state.redis,
                 process,
                 id=chat_id,
                 task_id=per_model_metadata['task_id'],
             )
-            task_ids.append(task_id)
+            chat_tasks[task_id] = task
 
         if is_internal:
             return {
@@ -1886,7 +1898,7 @@ async def chat_completion(
             }
 
         # Emit chat:active=true
-        if task_ids:
+        if chat_tasks:
             event_emitter = await get_event_emitter(
                 {**metadata, 'message_id': message_ids[0]['message_id']},
                 update_db=False,
@@ -1895,9 +1907,13 @@ async def chat_completion(
                 folder_id = metadata.get('folder_id') or await Chats.get_chat_folder_id(chat_id, user.id)
                 await event_emitter({'type': 'chat:active', 'data': {'active': True, 'folder_id': folder_id}})
 
+        # Automation chat runs must finish before their caller records success.
+        if metadata.get('automation_id') and is_saved_chat_id(chat_id):
+            await asyncio.gather(*chat_tasks.values())
+
         return {
             'status': True,
-            'task_ids': task_ids,
+            'task_ids': list(chat_tasks),
             'chat_id': chat_id,
         }
     else:
@@ -2055,6 +2071,7 @@ async def generate_messages(
     Anthropic's x-api-key header (via middleware translation).
     """
     requested_model = form_data.get('model', '')
+    request.state.model_id = requested_model
     input_tokens = None
     try:
         input_tokens = await openai.count_anthropic_tokens(request, form_data, user)
@@ -2329,9 +2346,11 @@ async def get_app_config(request: Request):
         'ui.enable_password_change_form',
         'direct.enable',
         'direct.integrations.enable',
+        'terminal_server.connections',
         'folders.enable',
         'folders.max_file_count',
         'channels.enable',
+        'channels.encryption.enable',
         'apps.enable',
         'calendar.enable',
         'automations.enable',
@@ -2345,6 +2364,9 @@ async def get_app_config(request: Request):
         'code_interpreter.enable',
         'image_generation.enable',
         'task.autocomplete.enable',
+        'task.title.enable',
+        'task.follow_up.enable',
+        'task.tags.enable',
         'ui.enable_community_sharing',
         'ui.enable_message_rating',
         'ui.enable_user_webhooks',
@@ -2352,9 +2374,11 @@ async def get_app_config(request: Request):
         'google_drive.enable',
         'onedrive.enable',
         'memories.enable',
+        'subagents.enable',
         'ui.default_models',
         'ui.default_pinned_models',
         'ui.default_interface_settings',
+        'ui.visibility',
         'ui.i18n',
         'ui.prompt_suggestions',
         'ui.prompt_suggestions_i18n',
@@ -2425,9 +2449,15 @@ async def get_app_config(request: Request):
                     'enable_tools': ENABLE_TOOLS,
                     'enable_functions': ENABLE_FUNCTIONS,
                     'enable_tool_servers': ENABLE_TOOL_SERVERS,
+                    'enable_terminal_servers': ENABLE_TOOL_SERVERS
+                    and any(
+                        connection.get('enabled', True)
+                        for connection in config.get('terminal_server.connections') or []
+                    ),
                     'enable_folders': config.get('folders.enable'),
                     'folder_max_file_count': config.get('folders.max_file_count'),
                     'enable_channels': config.get('channels.enable'),
+                    'enable_encrypted_channels': config.get('channels.encryption.enable'),
                     'enable_apps': config.get('apps.enable'),
                     'enable_calendar': config.get('calendar.enable'),
                     'enable_automations': config.get('automations.enable'),
@@ -2441,6 +2471,9 @@ async def get_app_config(request: Request):
                     'enable_code_interpreter': config.get('code_interpreter.enable'),
                     'enable_image_generation': config.get('image_generation.enable'),
                     'enable_autocomplete_generation': config.get('task.autocomplete.enable'),
+                    'enable_title_generation': config.get('task.title.enable'),
+                    'enable_follow_up_generation': config.get('task.follow_up.enable'),
+                    'enable_tags_generation': config.get('task.tags.enable'),
                     'enable_community_sharing': config.get('ui.enable_community_sharing'),
                     'enable_message_rating': config.get('ui.enable_message_rating'),
                     'enable_user_webhooks': config.get('ui.enable_user_webhooks'),
@@ -2451,6 +2484,7 @@ async def get_app_config(request: Request):
                     'enable_google_drive_integration': config.get('google_drive.enable'),
                     'enable_onedrive_integration': config.get('onedrive.enable'),
                     'enable_memories': config.get('memories.enable'),
+                    'enable_subagents': config.get('subagents.enable'),
                     **(
                         {
                             'enable_onedrive_personal': ENABLE_ONEDRIVE_PERSONAL,
@@ -2511,6 +2545,7 @@ async def get_app_config(request: Request):
                 },
                 'ui': {
                     'default_interface_settings': config.get('ui.default_interface_settings'),
+                    'visibility': config.get('ui.visibility'),
                     'pending_user_overlay_title': config.get('ui.pending_user_overlay_title'),
                     'pending_user_overlay_content': config.get('ui.pending_user_overlay_content'),
                     'response_watermark': config.get('ui.watermark'),
@@ -3107,6 +3142,8 @@ async def check_db_health():
 mimetypes.add_type('text/javascript', '.js')
 mimetypes.add_type('text/javascript', '.mjs')
 mimetypes.add_type('application/wasm', '.wasm')
+# Python before 3.13 only knows .webp from /etc/mime.types, which the Docker image does not ship
+mimetypes.add_type('image/webp', '.webp')
 
 # Serve build-time static assets (CSS, JS, images, favicon, etc.)
 app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
