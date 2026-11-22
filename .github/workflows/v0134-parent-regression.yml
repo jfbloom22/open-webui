@@ -13,7 +13,7 @@ jobs:
     if: github.event.pull_request.head.ref == 'codex/openwebui-v0.13.4-update'
     uses: open-webui/tests/.github/workflows/regression.yml@main
     with:
-      # Test the exact fork merge commit used for the candidate production image.
+      # Pin tests to the v0.13.4-era suite; current tests/main targets a newer machines API.
       open-webui-ref: 1c33f45857c86c84be270bf699caf72ee0ed8411
-      tests-ref: main
+      tests-ref: 06e3bba1f08e0412039342c2e2c5145eb47613e1
       suite: unit
