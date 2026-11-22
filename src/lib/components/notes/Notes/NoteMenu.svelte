@@ -78,7 +78,7 @@
 						<Switch bind:state={autoFormat} ariaLabel={$i18n.t('Formatting')} />
 					</div>
 				</Tooltip>
-				<hr />
+				<hr class="border-gray-100 dark:border-gray-800" />
 			{/if}
 			<DropdownSub contentClass="select-none z-50">
 				<button

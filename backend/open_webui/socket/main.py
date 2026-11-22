@@ -37,6 +37,7 @@ from open_webui.env import (
 )
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.channels import Channels
+from open_webui.models.chat_messages import ChatMessages
 from open_webui.models.chats import Chats
 from open_webui.models.config import Config
 from open_webui.models.folders import Folders
@@ -56,12 +57,13 @@ from open_webui.tasks import (
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.access_control.files import has_access_to_note_files
 from open_webui.utils.auth import get_verified_user_by_token
-from open_webui.utils.chat_id import is_saved_chat_id
+from open_webui.utils.chat_id import is_saved_chat_id, is_temporary_chat_id
 from open_webui.utils.json_codec import SOCKETIO_JSON, JSONCodec, dumps_bytes
 from open_webui.utils.misc import get_output_text
 from open_webui.utils.redis import (
     build_sentinel_kwargs,
     build_sentinel_url,
+    get_redis_client,
     get_redis_connection,
     get_sentinels_from_env,
 )
@@ -76,7 +78,7 @@ log = logging.getLogger(__name__)
 # cause, and let every message find the room it was meant for.
 REDIS = None
 
-# Configure CORS for Socket.IO
+# Socket.IO expects a wildcard string rather than a one-item wildcard list.
 SOCKETIO_CORS_ORIGINS = '*' if CORS_ALLOW_ORIGIN == ['*'] else CORS_ALLOW_ORIGIN
 
 # Large notes outgrow the 1 MB default; match uvicorn's 16 MiB websocket limit
@@ -220,11 +222,6 @@ YDOC_MANAGER = YdocManager(
     redis_key_prefix=f'{REDIS_KEY_PREFIX}:ydoc:documents',
 )
 
-REDIS_EVENT_CHANNEL = f'{REDIS_KEY_PREFIX}:direct_completion'
-
-EVENT_QUEUES: dict[str, asyncio.Queue] = {}
-EVENT_PUBLISH_LOCK = asyncio.Lock()
-
 
 def get_session_pool_batches():
     """All session pool entries, in bounded batches for the Redis backing."""
@@ -302,8 +299,13 @@ async def publish_note_presence(note_id: str):
         if REDIS is not None and not await lock.owned():
             return
         await sio.emit(
-            'note:presence',
-            {'note_id': note_id, 'users': sorted(people.values(), key=lambda person: person['id'])},
+            'events',
+            {
+                'data': {
+                    'type': 'note:presence',
+                    'data': {'note_id': note_id, 'users': sorted(people.values(), key=lambda person: person['id'])},
+                }
+            },
             room=f'note:{note_id}',
         )
 
@@ -463,7 +465,14 @@ async def periodic_socket_authentication():
         await asyncio.sleep(30)
         await encryption.sweep()
         for sid in tuple(LOCAL_AUTHENTICATED_SIDS):
-            await get_socket_session_user(sid)
+            session_user = await get_socket_session_user(sid)
+            if session_user:
+                from open_webui.socket.comments import revalidate_comment_subscription
+
+                try:
+                    await revalidate_comment_subscription(sio, sid, session_user)
+                except Exception:
+                    log.exception('Could not revalidate comment subscription')
 
 
 async def get_socket_session_user(sid: str, *, wait_for_disconnect: bool = True) -> dict | None:
@@ -583,7 +592,7 @@ async def disconnect_sessions_for_users(user_ids: list[str], *, refresh_access: 
     for sid in session_ids:
         if refresh_access:
             try:
-                await sio.emit('access:updated', {}, to=sid)
+                await sio.emit('events', {'data': {'type': 'access:updated'}}, to=sid)
             except Exception:
                 log.exception('Failed to notify session %s about changed access', sid)
         try:
@@ -649,6 +658,11 @@ async def user_join(sid, data):
     if not user:
         return
 
+    previous = await sio.get_session(sid)
+    if previous.get('user', {}).get('id') not in (None, user.id):
+        await sio.disconnect(sid)
+        return
+
     socket_user = {
         **user.model_dump(
             exclude=[
@@ -702,7 +716,7 @@ async def refresh_chat_access(chat_id=None):
                 key = (cid, session['id'])
                 if key not in access:
                     user = await Users.get_user_by_id(session['id'])
-                    access[key] = bool(user and await Chats.get_accessible_chat_by_id(cid, user))
+                    access[key] = bool(user and await Chats.has_chat_access(cid, user))
                 if not access[key]:
                     await sio.leave_room(sid, f'chat:{cid}')
                     chat_ids.add(cid)
@@ -754,6 +768,12 @@ async def join_channel(sid, data):
             await sio.enter_room(sid, f'channel:{channel.id}')
 
 
+async def has_notes_access(user_id: str, role: str) -> bool:
+    if not await Config.get('notes.enable'):
+        return False
+    return role == 'admin' or await has_permission(user_id, 'features.notes', await Config.get('user.permissions'))
+
+
 @sio.on('note:join')
 async def join_note(sid, data):
     auth = data['auth'] if 'auth' in data else None
@@ -768,9 +788,7 @@ async def join_note(sid, data):
     if not user:
         return
 
-    if user.role != 'admin' and not await has_permission(
-        user.id, 'features.notes', await Config.get('user.permissions')
-    ):
+    if not await has_notes_access(user.id, user.role):
         return
 
     note = await Notes.get_note_by_id(data['note_id'])
@@ -882,7 +900,7 @@ async def chat_events(sid, data):
         if sid not in (get_room_sid_map(sio.manager, '/', room) or {}):
             return False
         sender = await Users.get_user_by_id(user['id'])
-        if not sender or not await Chats.get_accessible_chat_by_id(chat_id, sender, permission='write'):
+        if not sender or not await Chats.has_chat_access(chat_id, sender, permission='write'):
             return False
         await sio.emit(
             'events',
@@ -907,7 +925,7 @@ async def chat_events(sid, data):
                 await sio.leave_room(sid, f'chat:{chat_id}')
             else:
                 reader = await Users.get_user_by_id(user['id'])
-                if not reader or not await Chats.get_accessible_chat_by_id(chat_id, reader):
+                if not reader or not await Chats.has_chat_access(chat_id, reader):
                     return False
                 await sio.enter_room(sid, f'chat:{chat_id}')
             session = SESSION_POOL.get(sid)
@@ -1007,9 +1025,7 @@ async def ydoc_document_join(sid, data):
         document_id = normalize_document_id(data['document_id'])
 
         if document_id.startswith('note:'):
-            if user.get('role') != 'admin' and not await has_permission(
-                user.get('id'), 'features.notes', await Config.get('user.permissions')
-            ):
+            if not await has_notes_access(user.get('id'), user.get('role')):
                 return
 
             note_id = document_id.split(':')[1]
@@ -1031,20 +1047,26 @@ async def ydoc_document_join(sid, data):
             ):
                 log.error(f'User {user.get("id")} does not have access to note {note_id}')
                 return
+        else:
+            # Only notes have access checks, so no other document gets a room.
+            return
 
         user_id = user['id']
         user_name = user.get('name', '')
         user_color = data.get('user_color', '#000000')
 
-        if (
-            sid not in await YDOC_MANAGER.get_users(document_id)
-            and await YDOC_MANAGER.count_documents_for_user(sid) >= YDOC_MANAGER.MAX_DOCUMENTS_PER_SESSION
-        ):
-            log.warning(f'Session {sid} is at the open-document limit. Rejecting join.')
-            return
+        # Serialise per user so parallel joins cannot exceed the limit
+        async with SOCKET_EVENT_LOCKS.setdefault(('user', user_id), asyncio.Lock()):
+            user_sids = get_session_ids_by_user_ids([user_id])
+            if sid not in await YDOC_MANAGER.get_users(document_id) and (
+                sum([await YDOC_MANAGER.count_documents_for_user(user_sid) for user_sid in user_sids])
+                >= YDOC_MANAGER.MAX_DOCUMENTS_PER_USER
+            ):
+                log.warning('User %s is at the open-document limit. Rejecting join.', user_id)
+                return
 
-        log.info('User %s joining document %s', user_id, document_id)
-        await YDOC_MANAGER.add_user(document_id=document_id, user_id=sid)
+            log.info('User %s joining document %s', user_id, document_id)
+            await YDOC_MANAGER.add_user(document_id=document_id, user_id=sid)
 
         # Join Socket.IO room
         await sio.enter_room(sid, f'doc_{document_id}')
@@ -1137,11 +1159,16 @@ async def document_save_handler(document_id, data, user):
         )
         if saved:
             await sio.emit(
-                'events:note',
+                'events',
                 {
-                    'id': note_id,
-                    'page': get_page(saved.data, page['id']),
-                    'updated_at': saved.updated_at,
+                    'data': {
+                        'type': 'note:updated',
+                        'data': {
+                            'id': note_id,
+                            'page': get_page(saved.data, page['id']),
+                            'updated_at': saved.updated_at,
+                        },
+                    }
                 },
                 to=f'note:{note_id}',
             )
@@ -1212,6 +1239,9 @@ async def yjs_document_update(sid, data):
             return
 
         if document_id.startswith('note:'):
+            if not await has_notes_access(user.get('id'), user.get('role')):
+                return
+
             note_id = document_id.split(':')[1]
             note = await Notes.get_note_by_id(note_id)
             if not note:
@@ -1419,65 +1449,6 @@ async def disconnect(sid, reason=None):
     await remove_document_session(sid)
 
 
-async def redis_event_listener() -> None:
-    """Route events received over Redis to their local queues."""
-    reconnect_interval = REDIS_PUBSUB_RECONNECT_INTERVAL
-
-    while True:
-        pubsub = None
-        try:
-            # RedisCluster can't route a pubsub subscribe until initialize() fills its slot cache.
-            await REDIS.initialize()
-
-            pubsub = REDIS.pubsub()
-            await pubsub.subscribe(REDIS_EVENT_CHANNEL)
-            reconnect_interval = REDIS_PUBSUB_RECONNECT_INTERVAL
-
-            async for message in pubsub.listen():
-                if message['type'] != 'message':
-                    continue
-                event = JSONCodec.loads(message['data'])
-                queue = EVENT_QUEUES.get(event['channel'])
-                if queue is not None:
-                    await queue.put(event['data'])
-            log.warning('Redis event listener stopped. Retrying.')
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception('Redis event listener failed. Retrying.')
-        finally:
-            if pubsub:
-                with suppress(Exception):
-                    await pubsub.aclose()
-
-        await asyncio.sleep(reconnect_interval)
-        reconnect_interval = min(reconnect_interval * 2, REDIS_PUBSUB_MAX_RECONNECT_INTERVAL)
-
-
-@sio.on('*')
-async def socket_event_handler(event: Any, sid: str, *args: Any) -> None:
-    """Route user-owned stream events to a local queue or another worker."""
-    if not isinstance(event, str) or event.count(':') != 2 or not args:
-        return
-
-    # The lock keeps arrival order; the sid re-check drops every event after a failed check
-    session_check = asyncio.create_task(get_socket_session_user(sid))
-    async with SOCKET_EVENT_LOCKS.setdefault(('session', sid), asyncio.Lock()):
-        user = await session_check
-        if not user or sid not in LOCAL_AUTHENTICATED_SIDS or user.get('id') != event.split(':', 1)[0]:
-            return
-
-        queue = EVENT_QUEUES.get(event)
-        if queue is not None:
-            await queue.put(args[0])
-        elif WEBSOCKET_MANAGER == 'redis':
-            try:
-                async with EVENT_PUBLISH_LOCK:
-                    await REDIS.publish(REDIS_EVENT_CHANNEL, dumps_bytes({'channel': event, 'data': args[0]}))
-            except RedisError as e:
-                log.debug('Failed to relay socket event %s: %s', event, e)
-
-
 async def _make_channel_emitter(request_info):
     """Event emitter that routes pipeline output to a channel message.
 
@@ -1594,6 +1565,10 @@ async def _make_channel_emitter(request_info):
 
 
 async def get_event_emitter(request_info, update_db=True):
+    from open_webui.utils.chat import get_temporary_chat
+
+    redis = get_redis_client(async_mode=True) if is_temporary_chat_id(request_info.get('chat_id')) else None
+
     # Channel mode: route pipeline output to channel message updates
     if (request_info.get('chat_id') or '').startswith('channel:'):
         return await _make_channel_emitter(request_info)
@@ -1612,7 +1587,23 @@ async def get_event_emitter(request_info, update_db=True):
         if internal and event_data.get('type') == 'notification':
             return
 
+        if event_data.get('type') == 'chat:active' and is_saved_chat_id(chat_id):
+            pending_approval_ids = await ChatMessages.get_chat_ids_with_pending_approval([chat_id])
+            event_data = {
+                **event_data,
+                'data': {
+                    **(event_data.get('data') or {}),
+                    'pending_approval': chat_id in pending_approval_ids,
+                    **({'folder_unread_counts': await get_folder_unread_counts(user_id)} if not internal else {}),
+                },
+            }
+
         room = f'user:{user_id}'
+        if is_temporary_chat_id(chat_id):
+            owner = await get_temporary_chat(redis, chat_id)
+            room = owner['session_id'] if owner and owner['user_id'] == user_id else request_info.get('session_id')
+            if not room or get_user_id_from_session_pool(room) != user_id:
+                return
         if event_data.get('type') != 'chat:messages':
             await sio.emit(
                 'events',
@@ -1784,8 +1775,29 @@ def get_user_chat_session_id(user_id: str, chat_id: str) -> str | None:
 
 
 async def get_event_call(request_info):
+    from open_webui.utils.chat import get_temporary_chat
+
+    redis = get_redis_client(async_mode=True) if is_temporary_chat_id(request_info.get('chat_id')) else None
+
     async def __event_caller__(event_data):
         session_id = request_info['session_id']
+        chat_id = request_info['chat_id']
+        message_id = request_info['message_id']
+        if is_temporary_chat_id(request_info['chat_id']):
+            owner = await get_temporary_chat(redis, request_info['chat_id'])
+            if owner and owner['user_id'] == request_info['user_id']:
+                session_id = request_info['session_id'] = owner['session_id']
+                if 'session_id' in (event_data.get('data') or {}):
+                    event_data = {**event_data, 'data': {**event_data['data'], 'session_id': session_id}}
+
+        if request_info.get('internal') is True and 'session_id' not in (event_data.get('data') or {}):
+            # The page only answers for its open chat.
+            metas = await Chats.get_chat_metas_by_chat_ids([chat_id], include_archived=True)
+            if not metas:
+                return {'error': 'Client session disconnected.'}
+            chat_id, message_id = metas[0]['parent_chat_id'], metas[0]['parent_message_id']
+            if chat_id not in ((SESSION_POOL.get(session_id) or {}).get('chat_ids') or []):
+                session_id = await asyncio.to_thread(get_user_chat_session_id, request_info['user_id'], chat_id)
 
         # session_id is client-supplied; only the requesting user's own live session may be targeted.
         session = SESSION_POOL.get(session_id)
@@ -1817,7 +1829,7 @@ async def get_event_call(request_info):
         can_resume = (
             is_input_request
             and 'session_id' not in (event_data.get('data') or {})
-            and is_saved_chat_id(request_info['chat_id'])
+            and (is_saved_chat_id(request_info['chat_id']) or is_temporary_chat_id(request_info['chat_id']))
         )
         try:
             async with asyncio.timeout(timeout):
@@ -1826,8 +1838,8 @@ async def get_event_call(request_info):
                         sio.call(
                             'events',
                             {
-                                'chat_id': request_info['chat_id'],
-                                'message_id': request_info['message_id'],
+                                'chat_id': chat_id,
+                                'message_id': message_id,
                                 'data': event_data,
                             },
                             to=session_id,
@@ -1852,9 +1864,19 @@ async def get_event_call(request_info):
                         async with asyncio.timeout(60):
                             while True:
                                 # Redis session scans are synchronous; keep them off the event loop.
-                                next_session_id = await asyncio.to_thread(
-                                    get_user_chat_session_id, request_info['user_id'], request_info['chat_id']
-                                )
+                                if is_temporary_chat_id(request_info['chat_id']):
+                                    owner = await get_temporary_chat(redis, request_info['chat_id'])
+                                    next_session_id = (
+                                        owner['session_id']
+                                        if owner and owner['user_id'] == request_info['user_id']
+                                        else None
+                                    )
+                                    if get_user_id_from_session_pool(next_session_id) != request_info['user_id']:
+                                        next_session_id = None
+                                else:
+                                    next_session_id = await asyncio.to_thread(
+                                        get_user_chat_session_id, request_info['user_id'], chat_id
+                                    )
                                 if next_session_id is not None:
                                     session_id = request_info['session_id'] = next_session_id
                                     break
@@ -1869,8 +1891,8 @@ async def get_event_call(request_info):
                 await sio.emit(
                     'events',
                     {
-                        'chat_id': request_info.get('chat_id'),
-                        'message_id': request_info.get('message_id'),
+                        'chat_id': chat_id,
+                        'message_id': message_id,
                         'data': {'type': 'request:interaction:done', 'data': {'interaction_id': interaction_id}},
                     },
                     to=session_id,
@@ -1883,3 +1905,8 @@ async def get_event_call(request_info):
 
 
 get_event_caller = get_event_call
+
+
+from open_webui.socket.comments import register_comment_events
+
+register_comment_events(sio, get_socket_session_user)

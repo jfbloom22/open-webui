@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { getPageContext, onTabLeave } from '$lib/utils/page';
+	const { goto } = getPageContext();
+
 	import { getContext, onDestroy } from 'svelte';
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { beforeNavigate } from '$app/navigation';
 	import { mobile } from '$lib/stores';
-	import { createFocusTrap } from 'focus-trap';
 	import Files from './Files.svelte';
 	import FileViewer from './FileViewer.svelte';
 	import AddContentMenu from './AddContentMenu.svelte';
@@ -80,6 +82,15 @@
 			state = newViewerState();
 		}
 	};
+	let cancelDiscard: (() => void) | null = null;
+	onTabLeave(() => {
+		if (saving) return false;
+		if (!dirty) return true;
+		return new Promise<boolean>((resolve) => {
+			cancelDiscard = () => resolve(false);
+			guard(() => resolve(true));
+		});
+	});
 	beforeNavigate((navigation) => {
 		if (allowNavigation || (!dirty && !saving)) return;
 		navigation.cancel();
@@ -89,11 +100,6 @@
 				goto(navigation.to!.url.href).finally(() => (allowNavigation = false));
 			});
 	});
-	const trapFocus = (node: HTMLElement) => {
-		const trap = createFocusTrap(node, { escapeDeactivates: false });
-		trap.activate();
-		return { destroy: () => trap.deactivate() };
-	};
 	onDestroy(() => clearTimeout(debounce));
 </script>
 
@@ -106,7 +112,11 @@
 		state = { ...state, editing: false, draft: state.indexed || '' };
 		action?.();
 	}}
-	on:cancel={() => (pendingAction = null)}
+	on:cancel={() => {
+		cancelDiscard?.();
+		cancelDiscard = null;
+		pendingAction = null;
+	}}
 />
 <div
 	class="flex h-full min-h-0 overflow-hidden rounded-2xl border border-gray-100/80 bg-gray-50/60 dark:border-white/[0.04] dark:bg-white/[0.03]"
@@ -123,15 +133,12 @@
 			resizerId="knowledge-files-resizer">{@render sidebar()}</ResizableSidePanel
 		>{@render viewer()}{/if}
 </div>
-{#if $mobile}<Drawer show={drawerOpen} className="h-full" onRequestClose={close}
-		><div
-			class="h-full"
-			role="dialog"
-			aria-modal="true"
-			aria-label={$i18n.t('File preview')}
-			tabindex="-1"
-			use:trapFocus
-		>
+{#if $mobile}<Drawer
+		show={drawerOpen}
+		className="h-full"
+		ariaLabel={$i18n.t('File preview')}
+		onRequestClose={close}
+		><div class="h-full">
 			{@render viewer()}
 		</div></Drawer
 	>{/if}
@@ -140,8 +147,8 @@
 	<div class="flex h-full min-h-0 w-full flex-col">
 		<div class="flex shrink-0 items-center p-1.5">
 			<Search className="mx-1 size-3.5 shrink-0 text-gray-400" /><input
-				aria-label={$i18n.t('Search Collection')}
-				placeholder={$i18n.t('Search Collection')}
+				aria-label={$i18n.t('Search Files')}
+				placeholder={$i18n.t('Search Files')}
 				bind:value={inputQuery}
 				class="h-7 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
 				on:input={() => {

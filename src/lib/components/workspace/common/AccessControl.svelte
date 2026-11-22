@@ -36,8 +36,9 @@
 	let saving = false;
 
 	export let accessRoles = ['read'];
-	export let labels: Partial<Record<'title' | 'public' | 'private' | 'read' | 'empty', string>> =
-		{};
+	export let labels: Partial<
+		Record<'title' | 'public' | 'private' | 'read' | 'write' | 'empty', string>
+	> = {};
 	export let accessGrants: AccessGrant[] | any = [];
 	export let accessControl: any = undefined;
 
@@ -561,6 +562,7 @@
 				</div>
 				<Switch
 					state={hasPublicWriteGrant(accessGrants ?? [])}
+					ariaLabel={$i18n.t('Allow public write access')}
 					on:change={() => {
 						togglePublicWrite();
 					}}
@@ -628,15 +630,16 @@
 									}
 								}}
 							>
-								<option value="read">{$i18n.t('Read')}</option>
-								<option value="write">{$i18n.t('Write')}</option>
+								<option value="read">{labels.read ?? $i18n.t('Read')}</option>
+								<option value="write">{labels.write ?? $i18n.t('Write')}</option>
 							</select>
 						{:else}
 							<Badge type={'info'} content={labels.read ?? $i18n.t('Read')} />
 						{/if}
 
 						<button
-							class="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+							aria-label={$i18n.t('Remove {{name}}', { name: group.name })}
+							class="rounded-full py-1 transition hover:text-gray-900 dark:hover:text-gray-100 text-gray-500 dark:text-gray-400 px-0"
 							type="button"
 							on:click={() => {
 								removePrincipal('group', group.id);
@@ -680,15 +683,16 @@
 										}
 									}}
 								>
-									<option value="read">{$i18n.t('Read')}</option>
-									<option value="write">{$i18n.t('Write')}</option>
+									<option value="read">{labels.read ?? $i18n.t('Read')}</option>
+									<option value="write">{labels.write ?? $i18n.t('Write')}</option>
 								</select>
 							{:else}
 								<Badge type={'info'} content={labels.read ?? $i18n.t('Read')} />
 							{/if}
 
 							<button
-								class="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+								aria-label={$i18n.t('Remove {{name}}', { name: user.name ?? user.id })}
+								class="rounded-full py-1 transition hover:text-gray-900 dark:hover:text-gray-100 text-gray-500 dark:text-gray-400 px-0"
 								type="button"
 								on:click={() => {
 									removePrincipal('user', user.id);

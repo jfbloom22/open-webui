@@ -147,7 +147,7 @@
 		page = 0;
 	}
 
-	const label = (item: TraceItem) =>
+	$: label = (item: TraceItem) =>
 		item.type === 'response'
 			? modelNames[item.model_id || ''] || item.model_id || $i18n.t('Response')
 			: item.name ||
@@ -201,7 +201,7 @@
 			data-close-session
 			aria-label={$i18n.t('Close session details')}
 			on:click={onClose}
-			class="shrink-0 rounded-lg p-1 hover:bg-gray-50 dark:hover:bg-gray-800"
+			class="shrink-0 rounded-lg py-1 hover:text-gray-900 dark:hover:text-gray-100 text-gray-500 dark:text-gray-400 px-0"
 			><XMark className="size-4" /></button
 		>
 	</div>
@@ -299,7 +299,7 @@
 				</p>
 			{/if}
 		{:else if !loading && !error}
-			<SessionWaterfall {items} {page} {label} {status} />
+			<SessionWaterfall {items} {page} {label} {status} {modelNames} />
 		{/if}
 		<div class="flex items-center gap-3 mb-2" aria-label={$i18n.t('Trace filter')}>
 			{#each [{ id: 'all', label: $i18n.t('All') }, { id: 'tools', label: $i18n.t('Tools') }, { id: 'errors', label: $i18n.t('Errors') }] as filter}

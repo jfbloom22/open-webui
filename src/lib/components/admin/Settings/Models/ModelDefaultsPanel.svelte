@@ -6,15 +6,18 @@
 
 	const i18n = getContext('i18n');
 
-	import { config as appConfig } from '$lib/stores';
+	import { config as appConfig, tools } from '$lib/stores';
 	import { DEFAULT_CAPABILITIES } from '$lib/constants';
 	import { getModelsConfig, setModelsConfig, setDefaultPromptSuggestions } from '$lib/apis/configs';
 	import { getBackendConfig } from '$lib/apis';
+	import { getTools } from '$lib/apis/tools';
 	import { getLanguages } from '$lib/i18n';
 	import { resolveLocalizedPromptSuggestions } from '$lib/utils/localizedContent';
 
 	import AdvancedParams from '$lib/components/chat/Settings/Advanced/AdvancedParams.svelte';
 	import Capabilities from '$lib/components/workspace/Models/Capabilities.svelte';
+	import ToolsSelector from '$lib/components/workspace/Models/ToolsSelector.svelte';
+	import TerminalSelector from '$lib/components/workspace/Models/TerminalSelector.svelte';
 	import LanguageModeSelect from '$lib/components/common/LanguageModeSelect.svelte';
 	import LocalizedPromptSuggestions from '$lib/components/workspace/Models/LocalizedPromptSuggestions.svelte';
 
@@ -31,6 +34,8 @@
 
 	let defaultCapabilities = {};
 	let defaultFeatureIds = [];
+	let toolIds = [];
+	let terminalId = '';
 	let defaultParams = {};
 	let builtinTools = {};
 	let promptSuggestions = [];
@@ -42,6 +47,9 @@
 	$: configuredParams = Object.entries(defaultParams ?? {}).filter(
 		([_, value]) => value !== null && value !== '' && value !== undefined
 	);
+	$: hasTerminal =
+		$appConfig?.features?.enable_terminal_servers ||
+		$appConfig?.features?.enable_direct_integrations;
 	$: enabledCapabilities = Object.entries(defaultCapabilities ?? {}).filter(([_, value]) => value);
 	$: translatedPromptLocales = Object.entries(promptSuggestionsI18n ?? {})
 		.filter(([_, value]) => Array.isArray(value?.suggestion_prompts))
@@ -52,6 +60,8 @@
 		JSON.stringify({
 			defaultCapabilities,
 			defaultFeatureIds,
+			toolIds,
+			terminalId,
 			defaultParams: Object.fromEntries(configuredParams),
 			builtinTools,
 			promptSuggestions: useDefaultPromptSuggestions
@@ -65,6 +75,8 @@
 		dirty = savedSnapshot !== '' && getSnapshot() !== savedSnapshot;
 	};
 
+	$: (toolIds, terminalId, updateDirty());
+
 	const resetPromptSuggestions = () => {
 		useDefaultPromptSuggestions = true;
 		promptSuggestions = resolveLocalizedPromptSuggestions(null, {});
@@ -77,14 +89,20 @@
 
 		const savedMeta = config?.DEFAULT_MODEL_METADATA;
 		if (savedMeta && Object.keys(savedMeta).length > 0) {
-			defaultCapabilities = savedMeta.capabilities ?? { ...DEFAULT_CAPABILITIES };
+			defaultCapabilities = { ...DEFAULT_CAPABILITIES, ...(savedMeta.capabilities ?? {}) };
 			defaultFeatureIds = savedMeta.defaultFeatureIds ?? [];
 			builtinTools = savedMeta.builtinTools ?? {};
+			toolIds = savedMeta.toolIds ?? [];
+			terminalId = savedMeta.terminalId ?? '';
 		} else {
 			defaultCapabilities = { ...DEFAULT_CAPABILITIES };
 			defaultFeatureIds = [];
 			builtinTools = {};
+			toolIds = [];
+			terminalId = '';
 		}
+
+		await tools.set((await getTools(localStorage.token).catch(() => null)) ?? []);
 
 		defaultParams = config?.DEFAULT_MODEL_PARAMS ?? {};
 		useDefaultPromptSuggestions = $appConfig?.default_prompt_suggestions == null;
@@ -107,7 +125,9 @@
 		const metadata = {
 			capabilities: defaultCapabilities,
 			...(defaultFeatureIds.length > 0 ? { defaultFeatureIds } : {}),
-			...(Object.keys(builtinTools).length > 0 ? { builtinTools } : {})
+			...(Object.keys(builtinTools).length > 0 ? { builtinTools } : {}),
+			...(toolIds.length > 0 ? { toolIds } : {}),
+			...(terminalId ? { terminalId } : {})
 		};
 
 		config = await getModelsConfig(localStorage.token);
@@ -204,12 +224,24 @@
 						>
 							<Capabilities
 								bind:capabilities={defaultCapabilities}
+								functionCalling={defaultParams.function_calling}
 								bind:defaultFeatureIds
 								bind:builtinTools
 							/>
 						</div>
 					{/if}
 				</div>
+
+				<ToolsSelector bind:selectedToolIds={toolIds} tools={$tools ?? []} />
+
+				{#if defaultCapabilities.terminal && hasTerminal}
+					<TerminalSelector
+						bind:terminalId
+						description={$i18n.t(
+							'Choose the terminal server selected by default for chats with models that do not set their own.'
+						)}
+					/>
+				{/if}
 
 				<div>
 					<button

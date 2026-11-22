@@ -15,13 +15,25 @@ export default defineConfig({
 		sveltekit(),
 		viteStaticCopy({
 			targets: [
+				{ src: 'node_modules/chart.js/dist/chart.umd.min.js', dest: 'visualizations' },
+				{ src: 'node_modules/dompurify/dist/purify.min.js', dest: 'visualizations' },
+				{ src: 'node_modules/chart.js/LICENSE.md', dest: 'licenses/visualizations/chartjs' },
+				{ src: 'node_modules/dompurify/LICENSE', dest: 'licenses/visualizations/dompurify' },
 				{
 					src: 'src/lib/encryption/vendor/THIRD_PARTY_LICENSES.txt',
 					dest: 'licenses/encryption'
 				},
 				{
+					src: ['node_modules/@novnc/novnc/docs/LICENSE*', 'node_modules/@novnc/novnc/AUTHORS'],
+					dest: 'licenses/novnc'
+				},
+				{
 					src: 'node_modules/onnxruntime-web/dist/*.jsep.*',
 
+					dest: 'wasm'
+				},
+				{
+					src: 'node_modules/pdfjs-dist/wasm/*',
 					dest: 'wasm'
 				}
 			]
@@ -33,7 +45,11 @@ export default defineConfig({
 		APP_BUILD_CHANNEL: JSON.stringify(buildInfo.channel)
 	},
 	build: {
+		target: 'es2022',
 		sourcemap: true
+	},
+	optimizeDeps: {
+		esbuildOptions: { target: 'es2022' }
 	},
 	server: {
 		proxy: {

@@ -19,6 +19,8 @@
 
 	export let side: 'top' | 'bottom' = 'top';
 	export let align: 'start' | 'end' = 'start';
+	/** Render the trigger as a bare value, for label | value rows. */
+	export let plain = false;
 
 	/** Optional callback when any value changes */
 	export let onChange: () => void = () => {};
@@ -151,48 +153,42 @@
 		return 'Schedule';
 	};
 
-	$: scheduleLabel = (() => {
-		if (frequency === 'ONCE') return 'Once';
-		if (frequency === 'HOURLY') return 'Hourly';
-		if (frequency === 'DAILY') return 'Daily';
-		if (frequency === 'WEEKLY') return 'Weekly';
-		if (frequency === 'MONTHLY') return 'Monthly';
-		if (frequency === 'CUSTOM') return 'Custom';
-		return 'Schedule';
-	})();
+	$: scheduleLabel =
+		FREQUENCIES.find((option) => option.key === frequency)?.label ?? $i18n.t('Schedule');
 </script>
 
 <Dropdown bind:show={showDropdown} {side} {align}>
 	<button
 		type="button"
-		class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl text-xs transition
-			text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+		class={plain
+			? 'flex w-full min-w-0 items-center text-left text-xs font-normal leading-6 text-gray-700 dark:text-gray-300'
+			: 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl text-xs transition text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}
 	>
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			fill="none"
-			viewBox="0 0 24 24"
-			stroke-width="1.5"
-			stroke="currentColor"
-			class="size-3.5"
-		>
-			<path
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-			/>
-		</svg>
-		<span class="whitespace-nowrap">{scheduleLabel}</span>
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			fill="none"
-			viewBox="0 0 24 24"
-			stroke-width="2"
-			stroke="currentColor"
-			class="size-2.5"
-		>
-			<path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-		</svg>
+		{#if !plain}<svg
+				xmlns="http://www.w3.org/2000/svg"
+				fill="none"
+				viewBox="0 0 24 24"
+				stroke-width="1.5"
+				stroke="currentColor"
+				class="size-3.5"
+			>
+				<path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+				/>
+			</svg>{/if}
+		<span class={plain ? 'truncate' : 'whitespace-nowrap'}>{scheduleLabel}</span>
+		{#if !plain}<svg
+				xmlns="http://www.w3.org/2000/svg"
+				fill="none"
+				viewBox="0 0 24 24"
+				stroke-width="2"
+				stroke="currentColor"
+				class="size-2.5"
+			>
+				<path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+			</svg>{/if}
 	</button>
 
 	<div
@@ -205,6 +201,7 @@
 
 		<div class="px-1.5 py-0.5">
 			<select
+				aria-label={$i18n.t('Schedule')}
 				class="w-full h-[1.6875rem] bg-transparent rounded-xl text-[0.8125rem] px-1.5 outline-hidden"
 				bind:value={frequency}
 				on:click={(e) => e.stopPropagation()}
@@ -219,6 +216,7 @@
 		{#if frequency === 'CUSTOM'}
 			<div class="px-2 pb-2">
 				<input
+					aria-label={$i18n.t('Custom schedule')}
 					type="text"
 					bind:value={customRrule}
 					placeholder="RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
@@ -232,6 +230,7 @@
 				{#if frequency === 'ONCE'}
 					<div class="flex items-center gap-1.5">
 						<input
+							aria-label={$i18n.t('Date')}
 							type="date"
 							bind:value={onceDate}
 							min={dayjs().format('YYYY-MM-DD')}
@@ -242,6 +241,7 @@
 					</div>
 					<div class="flex items-center gap-1.5">
 						<input
+							aria-label={$i18n.t('Time')}
 							type="time"
 							bind:value={onceTime}
 							class="bg-transparent outline-hidden text-xs dark:scheme-dark"
@@ -253,6 +253,7 @@
 					<div class="flex items-center gap-1.5">
 						<span class="text-xs text-gray-500 mr-0.5">{$i18n.t('Time')}</span>
 						<input
+							aria-label={$i18n.t('Time')}
 							type="time"
 							value={`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`}
 							on:input={(e) => {
@@ -271,6 +272,7 @@
 					<div class="flex items-center gap-1.5">
 						<span class="text-xs text-gray-500">{$i18n.t('Day')}</span>
 						<input
+							aria-label={$i18n.t('Day')}
 							type="number"
 							bind:value={monthDay}
 							min={1}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { config, models, settings, showCallOverlay, TTSWorker } from '$lib/stores';
+	import { config, settings, voiceCall, TTSWorker } from '$lib/stores';
 	import { onMount, tick, getContext, onDestroy, createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher();
@@ -18,6 +18,9 @@
 	import type { RealtimeCall } from '$lib/utils/realtime';
 	import VoiceAvatar from './CallOverlay/VoiceAvatar.svelte';
 	import type { AvatarAnimationCommand } from '$lib/utils/voice-avatar';
+	import { getChatContext } from '$lib/components/chat/context';
+
+	const { models } = getChatContext();
 
 	const i18n: any = getContext('i18n');
 
@@ -82,7 +85,7 @@
 			command.result = { status: 'cancelled' };
 		} else if (
 			!destroyed &&
-			$showCallOverlay &&
+			$voiceCall &&
 			showAvatar &&
 			!camera &&
 			readyAvatar === avatar?.file_id
@@ -274,8 +277,8 @@
 	};
 
 	const stopRecordingCallback = async (_continue = true) => {
-		// $showCallOverlay stays true when the chat page unmounts
-		if ($showCallOverlay && !destroyed) {
+		// $voiceCall stays true when the chat page unmounts
+		if ($voiceCall && !destroyed) {
 			console.log('%c%s', 'color: red; font-size: 20px;', '🚨 stopRecordingCallback 🚨');
 
 			// deep copy the audioChunks array
@@ -322,7 +325,7 @@
 	};
 
 	const startRecording = async () => {
-		if ($showCallOverlay && !destroyed) {
+		if ($voiceCall && !destroyed) {
 			if (!audioStream) {
 				audioStream = await navigator.mediaDevices.getUserMedia({
 					audio: {
@@ -416,7 +419,7 @@
 
 		const detectSound = () => {
 			const processFrame = () => {
-				if (!mediaRecorder || !$showCallOverlay) {
+				if (!mediaRecorder || !$voiceCall) {
 					return;
 				}
 
@@ -442,7 +445,7 @@
 				// Check if initial speech/noise has started
 				const hasSound = domainData.some((value) => value > 0);
 				if (hasSound) {
-					// BIG RED TEXT
+					// Big red text
 					console.log('%c%s', 'color: red; font-size: 20px;', '🔊 Sound detected');
 					if (mediaRecorder && mediaRecorder.state !== 'recording') {
 						mediaRecorder.start();
@@ -497,7 +500,7 @@
 	};
 
 	const speakSpeechSynthesisHandler = (content) => {
-		if (!$showCallOverlay) return Promise.resolve();
+		if (!$voiceCall) return Promise.resolve();
 		const signal = audioAbortController.signal;
 		return new Promise<void>((resolve) => {
 			let utterance: SpeechSynthesisUtterance | null = null;
@@ -534,7 +537,7 @@
 	};
 
 	const playAudio = (audio: HTMLAudioElement) => {
-		if ($showCallOverlay) {
+		if ($voiceCall) {
 			return new Promise((resolve) => {
 				const audioElement = callAudioElement;
 				if (!audioElement) {
@@ -750,10 +753,7 @@
 
 	const chatEventHandler = async (e) => {
 		const { id, content } = e.detail;
-		// "id" here is message id
-		// if "id" is not the same as "currentMessageId" then do not process
-		// "content" here is a sentence from the assistant,
-		// there will be many sentences for the same "id"
+		// Collect assistant sentences only for the active message ID.
 
 		if (currentMessageId === id) {
 			console.log(`Received chat event for message ID ${id}: ${content}`);
@@ -913,10 +913,12 @@
 	});
 </script>
 
-{#if $showCallOverlay}
+{#if $voiceCall}
 	<!-- A media element can only have one Web Audio source, even after its context closes. -->
 	<audio bind:this={callAudioElement} class="hidden"></audio>
-	<div class="max-w-lg w-full h-full max-h-[100dvh] flex flex-col justify-between p-3 md:p-6">
+	<div
+		class="max-w-lg w-full h-full max-h-[100dvh] flex flex-col justify-between px-3 pb-3 md:px-6 md:pb-6"
+	>
 		{#if camera}
 			<button
 				type="button"
@@ -1020,7 +1022,7 @@
 									speaking={avatarSpeaking}
 									listening={hasStartedSpeaking && !muted && !avatarSpeaking}
 									level={outputLevel}
-									active={!destroyed && $showCallOverlay}
+									active={!destroyed && $voiceCall}
 									on:ready={() => {
 										readyAvatar = selectedAvatar.file_id;
 									}}
@@ -1310,7 +1312,7 @@
 							await stopVideoStream();
 						}
 
-						showCallOverlay.set(false);
+						voiceCall.set(false);
 						dispatch('close');
 					}}
 					type="button"

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Comments from '$lib/components/comments/Comments.svelte';
+	import type { CommentsRequest } from '$lib/components/comments/CommentsPanel.svelte';
+	let comments: CommentsRequest | null = null;
 	import { marked } from 'marked';
 	import Fuse from 'fuse.js';
 	import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom';
@@ -11,7 +14,7 @@
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { flyAndScale } from '$lib/utils/transitions';
 
-	import { onMount, getContext, tick } from 'svelte';
+	import { getContext, tick } from 'svelte';
 
 	import { deleteModel, getOllamaVersion, pullModel } from '$lib/apis/ollama';
 	import { deleteModelById } from '$lib/apis/models';
@@ -27,8 +30,6 @@
 		user,
 		MODEL_DOWNLOAD_POOL,
 		mobile,
-		models,
-		temporaryChatEnabled,
 		settings,
 		config,
 		showSettings,
@@ -53,6 +54,9 @@
 	import TagSelector from '$lib/components/workspace/common/TagSelector.svelte';
 
 	import ModelItem from './ModelItem.svelte';
+	import { getChatContext } from '$lib/components/chat/context';
+
+	const { models, temporary } = getChatContext();
 
 	const i18n: any = getContext('i18n');
 
@@ -131,7 +135,12 @@
 	};
 	const focusChatInput = () => {
 		if (!$mobile) {
-			document.getElementById('chat-input')?.focus();
+			document
+				.getElementById(
+					triggerElement?.closest('[data-composer-id]')?.getAttribute('data-composer-id') ??
+						'chat-input'
+				)
+				?.focus();
 		}
 
 		if (
@@ -197,7 +206,14 @@
 		}
 	};
 
-	let tags = [];
+	$: tags = Array.from(
+		new Set(
+			(items ?? [])
+				.filter((item) => includeHidden || !(item.model?.info?.meta?.hidden ?? false))
+				.flatMap((item) => item.model?.tags ?? [])
+				.map((tag) => tag.name.toLowerCase())
+		)
+	).sort((a, b) => a.localeCompare(b));
 
 	let selectedModel = '';
 	$: selectedValues = values ?? (value ? [value] : []);
@@ -278,8 +294,6 @@
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
 							return item.model?.connection_type === 'external';
-						} else if (selectedConnectionType === 'direct') {
-							return item.model?.direct;
 						}
 					})
 			: items
@@ -298,8 +312,6 @@
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
 							return item.model?.connection_type === 'external';
-						} else if (selectedConnectionType === 'direct') {
-							return item.model?.direct;
 						}
 					})
 	).filter((item) => includeHidden || !(item.model?.info?.meta?.hidden ?? false));
@@ -358,9 +370,6 @@
 		...(items.find((item) => item.model?.connection_type === 'external')
 			? [{ value: 'connection:external', label: $i18n.t('External') }]
 			: []),
-		...(items.find((item) => item.model?.direct)
-			? [{ value: 'connection:direct', label: $i18n.t('Direct') }]
-			: []),
 		...tags.map((tag) => ({ value: `tag:${tag}`, label: tag }))
 	];
 
@@ -369,6 +378,17 @@
 		: selectedTag
 			? `tag:${selectedTag}`
 			: '';
+
+	$: if (selectedTag && !modelFilterItems.some((item) => item.value === `tag:${selectedTag}`)) {
+		selectedTag = '';
+	}
+
+	$: if (
+		selectedConnectionType &&
+		!modelFilterItems.some((item) => item.value === `connection:${selectedConnectionType}`)
+	) {
+		selectedConnectionType = '';
+	}
 
 	const setModelFilter = (filterValue: string) => {
 		if (!filterValue) {
@@ -566,12 +586,7 @@
 					})
 				);
 
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				models.set(await getModels(localStorage.token));
 			} else {
 				toast.error($i18n.t('Download canceled'));
 			}
@@ -694,12 +709,7 @@
 						modelName: model
 					})
 				);
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				models.set(await getModels(localStorage.token));
 			}
 		} catch (error) {
 			if (!controller.signal.aborted) {
@@ -748,17 +758,6 @@
 			: [];
 	};
 
-	onMount(() => {
-		if (items) {
-			tags = items
-				.filter((item) => includeHidden || !(item.model?.info?.meta?.hidden ?? false))
-				.flatMap((item) => item.model?.tags ?? [])
-				.map((tag) => tag.name.toLowerCase());
-			// Remove duplicates and sort
-			tags = Array.from(new Set(tags)).sort((a, b) => a.localeCompare(b));
-		}
-	});
-
 	const cancelModelPullHandler = async (model: string) => {
 		const { reader, abortController, providerLabel } = $MODEL_DOWNLOAD_POOL[model];
 		if (abortController) {
@@ -792,12 +791,7 @@
 
 		if (res) {
 			toast.success($i18n.t('Model unloaded successfully'));
-			models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+			models.set(await getModels(localStorage.token));
 		}
 	};
 
@@ -842,12 +836,7 @@
 				value = '';
 			}
 
-			models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+			models.set(await getModels(localStorage.token));
 		}
 
 		deleteModelTarget = null;
@@ -923,12 +912,7 @@
 				? 'dark:placeholder-gray-100 placeholder-gray-800'
 				: 'placeholder-gray-400'}"
 			on:mouseenter={async () => {
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				models.set(await getModels(localStorage.token));
 			}}
 		>
 			<span class="min-w-0 flex-1 truncate">{triggerLabel}</span>
@@ -963,7 +947,9 @@
 								aria-autocomplete="list"
 								aria-expanded={filteredItems.length + downloadTargets.length > 0}
 								aria-controls="model-selector-list"
-								aria-activedescendant={filteredItems.length + downloadTargets.length > 0
+								aria-activedescendant={filteredItems.length + downloadTargets.length > 0 &&
+								(selectedModelIdx >= filteredItems.length ||
+									(selectedModelIdx >= visibleStart && selectedModelIdx < visibleEnd))
 									? `model-option-${selectedModelIdx}`
 									: undefined}
 								on:keydown={(e) => {
@@ -989,6 +975,18 @@
 									} else {
 										// if the user types something, reset to the top selection.
 										selectedModelIdx = 0;
+									}
+
+									if (
+										listContainer &&
+										selectedModelIdx < filteredItems.length &&
+										(selectedModelIdx < visibleStart || selectedModelIdx >= visibleEnd)
+									) {
+										listScrollTop = Math.max(
+											0,
+											selectedModelIdx * ITEM_HEIGHT - 128 + ITEM_HEIGHT / 2
+										);
+										listContainer.scrollTop = listScrollTop;
 									}
 
 									const item = document.querySelector(`[data-arrow-selected="true"]`);
@@ -1109,6 +1107,7 @@
 								{#each filteredItems.slice(visibleStart, visibleEnd) as item, i (item.value)}
 									{@const index = visibleStart + i}
 									<ModelItem
+										onComment={(request) => (comments = request)}
 										bind:selectedModelIdx
 										{item}
 										{index}
@@ -1312,3 +1311,5 @@
 		</div>
 	{/if}
 </div>
+
+<Comments modal bind:view={comments} />

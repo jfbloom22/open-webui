@@ -8,8 +8,13 @@
 	import Modal from '$lib/components/common/Modal.svelte';
 	import AccessControl from '$lib/components/workspace/common/AccessControl.svelte';
 	import XMark from '../icons/XMark.svelte';
-	import { getFolderById, updateFolderAccessById } from '$lib/apis/folders';
+	import { updateFolderAccessById } from '$lib/apis/folders';
 	import { user } from '$lib/stores';
+	import {
+		loadFolderDetails,
+		updateFolderDetails,
+		markFolderChatsDirty
+	} from '$lib/stores/folderStates';
 
 	type AccessGrant = {
 		id?: string;
@@ -33,7 +38,7 @@
 	const loadAccessGrants = async () => {
 		loading = true;
 		try {
-			const freshFolder = await getFolderById(localStorage.token, folder.id);
+			const freshFolder = await loadFolderDetails(localStorage.token, folder.id, true);
 			if (freshFolder) {
 				accessGrants = freshFolder.access_grants ?? [];
 				shareMode = freshFolder.data?.share_mode ?? null;
@@ -58,6 +63,9 @@
 				shareMode
 			);
 			if (res) {
+				updateFolderDetails(folder.id, res);
+				markFolderChatsDirty(folder.id);
+				await loadFolderDetails(localStorage.token, folder.id, true);
 				accessGrants = res.access_grants ?? accessGrants;
 				toast.success($i18n.t('Saved'));
 			}
@@ -70,7 +78,7 @@
 	};
 </script>
 
-<Modal size="sm" bind:show>
+<Modal ariaLabel={`${$i18n.t('Access')}: ${folder?.name ?? ''}`} size="sm" bind:show>
 	<div>
 		<div class=" flex justify-between dark:text-gray-100 px-5 pt-3 pb-1">
 			<div class=" text-sm self-center">
@@ -78,7 +86,7 @@
 			</div>
 			<button
 				aria-label={$i18n.t('Close')}
-				class="self-center rounded-lg p-1 text-gray-500 transition hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+				class="self-center rounded-lg py-1 text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-0"
 				on:click={() => {
 					show = false;
 				}}

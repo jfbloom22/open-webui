@@ -33,9 +33,7 @@
 
 	const resize = () => {
 		if (textareaElement) {
-			// Find all ancestors that currently have an active scroll offset.
-			// This is extremely fast because reading `scrollTop` on a clean layout doesn't trigger reflow,
-			// and it makes the fix 100% robust without relying on hardcoded CSS classes.
+			// Remember scrolled ancestors before resizing; typing should not rearrange the scenery.
 			const activeScrollParents: { el: HTMLElement; top: number }[] = [];
 			let p = textareaElement.parentNode;
 			while (p && p !== document.body) {
@@ -48,7 +46,9 @@
 
 			textareaElement.style.height = '';
 
+			// A hidden textarea (e.g. in a background tab) measures 0; leave sizing to field-sizing.
 			let height = textareaElement.scrollHeight;
+			if (height === 0) return;
 			if (maxSize && height > maxSize) {
 				height = maxSize;
 			}
@@ -58,8 +58,7 @@
 
 			textareaElement.style.height = `${height}px`;
 
-			// Only restore scroll for elements that were actually scrolled.
-			// This prevents layout thrashing that happens if we blindly set `.scrollTop` on every parent.
+			// Restore only changed offsets; the rest of the page can stay seated.
 			activeScrollParents.forEach((p) => {
 				if (p.el.scrollTop !== p.top) p.el.scrollTop = p.top;
 			});
@@ -76,7 +75,7 @@
 	{placeholder}
 	aria-label={ariaLabel || placeholder}
 	class={className}
-	style="field-sizing: content;"
+	style="field-sizing: content;{maxSize ? ` max-height: ${maxSize}px;` : ''}"
 	{rows}
 	{required}
 	{readonly}

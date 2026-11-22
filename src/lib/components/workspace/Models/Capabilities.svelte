@@ -33,6 +33,11 @@
 			description: $i18n.t('settings.admin.models.capabilities.imageGeneration.description'),
 			enabled: $config?.features?.enable_image_generation
 		},
+		video_generation: {
+			label: $i18n.t('settings.admin.models.capabilities.videoGeneration.label'),
+			description: $i18n.t('settings.admin.models.capabilities.videoGeneration.description'),
+			enabled: $config?.features?.enable_video_generation
+		},
 		code_interpreter: {
 			label: $i18n.t('settings.admin.models.capabilities.codeInterpreter.label'),
 			description: $i18n.t('settings.admin.models.capabilities.codeInterpreter.description'),
@@ -68,20 +73,29 @@
 	type Capability = keyof typeof capabilityLabels;
 
 	export let capabilities: Partial<Record<Capability, boolean>> = {};
+	export let functionCalling: string | null = null;
+	$: effectiveCapabilities = {
+		...capabilities,
+		file_context: capabilities.file_context ?? functionCalling === 'legacy'
+	};
 
 	export let defaultFeatureIds: string[] = [];
 	export let builtinTools: Record<string, boolean> = {};
 	export let disabled = false;
-	const featureKeys = ['web_search', 'image_generation', 'code_interpreter'] as const;
-	$: hasTerminal =
-		$config?.features?.enable_terminal_servers || $config?.features?.enable_direct_integrations;
+	const featureKeys = [
+		'web_search',
+		'image_generation',
+		'video_generation',
+		'code_interpreter'
+	] as const;
+	$: hasTerminal = $config?.features?.enable_terminal_servers || $config?.features?.tether;
 	$: availableCapabilities = (Object.keys(capabilityLabels) as Capability[]).filter(
 		(key) =>
 			(key !== 'file_context' || capabilities.file_upload) &&
 			(key !== 'terminal' || hasTerminal) &&
 			(capabilityLabels[key].enabled ?? true)
 	);
-	$: enabledCapabilityIds = availableCapabilities.filter((key) => capabilities[key]);
+	$: enabledCapabilityIds = availableCapabilities.filter((key) => effectiveCapabilities[key]);
 	$: availableFeatures = featureKeys.filter((key) => enabledCapabilityIds.includes(key));
 	$: enabledDefaultIds = availableFeatures.filter((key) => defaultFeatureIds.includes(key));
 	const setDefault = (key: string, enabled: boolean) => {
@@ -92,34 +106,35 @@
 </script>
 
 <div class="space-y-0.5">
-	<ModelSettingsSection
-		label={$i18n.t('settings.admin.models.capabilities.title')}
-		description={$i18n.t(
-			'Choose which features are available for this model. The connected model and provider must support them.'
-		)}
-	>
-		<span slot="summary" class="flex min-w-0 items-center gap-1 text-gray-900 dark:text-gray-100">
-			<span class="min-w-0 truncate"
-				>{enabledCapabilityIds
-					.slice(0, 3)
-					.map((key) => capabilityLabels[key].label)
-					.join(', ') || $i18n.t('None')}</span
-			>
-			{#if enabledCapabilityIds.length > 3}<span class="shrink-0 text-gray-500"
-					>+{enabledCapabilityIds.length - 3}</span
-				>{/if}
-		</span>
-		<div class="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
-			{#each availableCapabilities.filter((key) => $visibleControls[`model_editor.capabilities.${key}`]) as key}
-				<ModelSettingToggle
-					label={capabilityLabels[key].label}
-					description={capabilityLabels[key].description}
-					bind:checked={capabilities[key]}
-					{disabled}
-				/>
-			{/each}
-		</div>
-	</ModelSettingsSection>
+	{#if availableCapabilities.some((key) => $visibleControls[`model_editor.capabilities.${key}`])}
+		<ModelSettingsSection
+			label={$i18n.t('settings.admin.models.capabilities.title')}
+			description={$i18n.t('Choose which features are available for this model.')}
+		>
+			<span slot="summary" class="flex min-w-0 items-center gap-1 text-gray-900 dark:text-gray-100">
+				<span class="min-w-0 truncate"
+					>{enabledCapabilityIds
+						.slice(0, 3)
+						.map((key) => capabilityLabels[key].label)
+						.join(', ') || $i18n.t('None')}</span
+				>
+				{#if enabledCapabilityIds.length > 3}<span class="shrink-0 text-gray-500"
+						>+{enabledCapabilityIds.length - 3}</span
+					>{/if}
+			</span>
+			<div class="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+				{#each availableCapabilities.filter((key) => $visibleControls[`model_editor.capabilities.${key}`]) as key}
+					<ModelSettingToggle
+						label={capabilityLabels[key].label}
+						description={capabilityLabels[key].description}
+						checked={effectiveCapabilities[key]}
+						on:change={(e) => (capabilities[key] = e.detail)}
+						{disabled}
+					/>
+				{/each}
+			</div>
+		</ModelSettingsSection>
+	{/if}
 
 	<!-- Previous DefaultFeatures labels retained for i18n extraction:
 	{$i18n.t('settings.admin.models.defaultFeatures.webSearch.label')}
@@ -152,6 +167,7 @@
 				{#each availableFeatures.filter((key) => $visibleControls[`model_editor.defaults.${key}`]) as key}
 					<ModelSettingToggle
 						label={capabilityLabels[key].label}
+						description={`${capabilityLabels[key].description}. ${$i18n.t('Start enabled in new chats')}.`}
 						checked={defaultFeatureIds.includes(key)}
 						{disabled}
 						on:change={(e) => setDefault(key, e.detail)}

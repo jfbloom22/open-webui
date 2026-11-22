@@ -8,7 +8,7 @@
 	export let contentClass =
 		'select-none rounded-2xl p-1 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg border border-gray-100 dark:border-gray-800';
 
-	/** Max width in px, enforced at the component level */
+	/** Max width at the default 16px root size; scales with the interface. */
 	export let maxWidth = 200;
 
 	/** Side offset from the trigger in px (visual gap, bridged by invisible padding) */
@@ -134,7 +134,12 @@
 		await openSub();
 	}
 
+	const isTextField = (element: EventTarget | null) =>
+		element instanceof HTMLElement && element.matches('input, textarea, [contenteditable="true"]');
+
 	function handleContentKeydown(event: KeyboardEvent) {
+		if (['ArrowLeft', 'Home', 'End'].includes(event.key) && isTextField(event.target)) return;
+
 		if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) && contentEl) {
 			const items = [
 				...contentEl.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([disabled])')
@@ -166,6 +171,7 @@
 		// Don't close if moving to the sub-content (including its bridge padding)
 		if (relatedTarget && contentEl?.contains(relatedTarget)) return;
 		if (relatedTarget && triggerEl?.contains(relatedTarget)) return;
+		if (contentEl?.contains(document.activeElement) && isTextField(document.activeElement)) return;
 		open = false;
 	}
 
@@ -174,6 +180,7 @@
 
 		if (relatedTarget && triggerEl?.contains(relatedTarget)) return;
 		if (relatedTarget && contentEl?.contains(relatedTarget)) return;
+		if (contentEl?.contains(document.activeElement) && isTextField(document.activeElement)) return;
 		open = false;
 	}
 
@@ -214,6 +221,7 @@
 	<div
 		use:portal
 		bind:this={contentEl}
+		class="no-drag-region"
 		role="menu"
 		tabindex="-1"
 		on:mouseleave={handleContentMouseLeave}
@@ -221,7 +229,7 @@
 	>
 		<!-- Inner content: visual styles and transition -->
 		<div transition:flyAndScale>
-			<DropdownMenu className={contentClass} style="max-width: {maxWidth}px;">
+			<DropdownMenu className={contentClass} style="max-width: {maxWidth / 16}rem;">
 				<slot />
 			</DropdownMenu>
 		</div>

@@ -949,7 +949,7 @@
 			{/if}
 		</div>
 
-		{#if permissions.chat.temporary}
+		{#if permissions.chat.temporary || defaultPermissions?.chat?.temporary}
 			<div class="flex flex-col w-full">
 				<div class="flex w-full justify-between my-1">
 					<div class=" self-center text-xs font-normal">
@@ -969,6 +969,20 @@
 				{/if}
 			</div>
 		{/if}
+
+		<div class="flex flex-col w-full">
+			<div class="flex w-full justify-between my-1">
+				<div class="self-center text-xs font-normal">
+					{$i18n.t('Allow Side Chat')}
+				</div>
+				<Switch bind:state={permissions.chat.side_chat} ariaLabel={$i18n.t('Allow Side Chat')} />
+			</div>
+			{#if defaultPermissions?.chat?.side_chat && !permissions.chat.side_chat}
+				<div class="text-xs text-gray-500">
+					{$i18n.t('This is a default user permission and will remain enabled.')}
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<hr class=" border-gray-100/30 dark:border-gray-850/30" />
@@ -1069,27 +1083,6 @@
 			</div>
 		{/if}
 
-		{#if $config?.features?.enable_direct_integrations}
-			<div class="flex flex-col w-full">
-				<div class="flex w-full justify-between my-1">
-					<div class=" self-center text-xs font-normal">
-						{$i18n.t('Direct Tool Servers')}
-					</div>
-					<Switch
-						bind:state={permissions.features.direct_tool_servers}
-						ariaLabel={$i18n.t('Direct Tool Servers')}
-					/>
-				</div>
-				{#if defaultPermissions?.features?.direct_tool_servers && !permissions.features.direct_tool_servers}
-					<div>
-						<div class="text-xs text-gray-500">
-							{$i18n.t('This is a default user permission and will remain enabled.')}
-						</div>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
 		{#if $config?.features?.enable_web_search}
 			<div class="flex flex-col w-full">
 				<div class="flex w-full justify-between my-1">
@@ -1129,6 +1122,27 @@
 			</div>
 		{/if}
 
+		{#if $config?.features?.enable_video_generation}
+			<div class="flex flex-col w-full">
+				<div class="flex w-full justify-between my-1">
+					<div class=" self-center text-xs font-normal">
+						{$i18n.t('Video Generation')}
+					</div>
+					<Switch
+						bind:state={permissions.features.video_generation}
+						ariaLabel={$i18n.t('Video Generation')}
+					/>
+				</div>
+				{#if defaultPermissions?.features?.video_generation && !permissions.features.video_generation}
+					<div>
+						<div class="text-xs text-gray-500">
+							{$i18n.t('This is a default user permission and will remain enabled.')}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 		{#if $config?.features?.enable_code_interpreter}
 			<div class="flex flex-col w-full">
 				<div class="flex w-full justify-between my-1">
@@ -1159,6 +1173,24 @@
 					<Switch bind:state={permissions.features.memories} ariaLabel={$i18n.t('Memories')} />
 				</div>
 				{#if defaultPermissions?.features?.memories && !permissions.features.memories}
+					<div>
+						<div class="text-xs text-gray-500">
+							{$i18n.t('This is a default user permission and will remain enabled.')}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
+		{#if $config?.features?.enable_subagents}
+			<div class="flex flex-col w-full">
+				<div class="flex w-full justify-between my-1">
+					<div class=" self-center text-xs font-normal">
+						{$i18n.t('Sub-agents')}
+					</div>
+					<Switch bind:state={permissions.features.subagents} ariaLabel={$i18n.t('Sub-agents')} />
+				</div>
+				{#if defaultPermissions?.features?.subagents && !permissions.features.subagents}
 					<div>
 						<div class="text-xs text-gray-500">
 							{$i18n.t('This is a default user permission and will remain enabled.')}
