@@ -13,8 +13,8 @@ jobs:
     if: github.event.pull_request.head.ref == 'codex/openwebui-v0.13.4-update'
     uses: open-webui/tests/.github/workflows/regression.yml@main
     with:
-      # Pin tests to the v0.13.4-era suite; this revision includes the image-connection fixture,
+      # Pin tests to the v0.13.4-era suite; it includes image-connection and visualization fixes,
       # while predating the newer machines API in tests/main.
       open-webui-ref: 1c33f45857c86c84be270bf699caf72ee0ed8411
-      tests-ref: 054f353fa440a349781989de4cc4817a64c803a0
+      tests-ref: 76bf4e81bbb86217b2b15857ddd46fb868253d99
       suite: unit
