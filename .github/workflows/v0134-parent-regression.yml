@@ -1,0 +1,19 @@
+name: Open WebUI v0.13.4 parent regression
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    if: github.event.pull_request.head.ref == 'codex/openwebui-v0.13.4-update'
+    uses: open-webui/tests/.github/workflows/regression.yml@main
+    with:
+      # Test the exact fork merge commit used for the candidate production image.
+      open-webui-ref: 1c33f45857c86c84be270bf699caf72ee0ed8411
+      tests-ref: main
+      suite: unit
