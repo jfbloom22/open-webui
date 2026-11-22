@@ -20,6 +20,7 @@ from open_webui.tasks import has_active_tasks
 from open_webui.utils.auth import VERIFIED_USER_ROLES
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import get_message_list
+from open_webui.utils.tool_calling import strip_tool_approval_prompt
 from open_webui.utils.tool_search import strip_deferred_tools_manifest
 from sqlalchemy import select
 from starlette.datastructures import Headers
@@ -98,8 +99,6 @@ async def create_timer(
     model_id = metadata.get('model_id') or (metadata.get('model') or {}).get('id')
     if not model_id:
         return 'Error: model context is required.'
-    if metadata.get('direct'):
-        return 'Error: timers are unavailable for direct connections.'
 
     chat_id = str(uuid4())
     user_message_id = str(uuid4())
@@ -379,7 +378,10 @@ async def execute_due_timer(app, timer_id: str, claim_id: str | None = None) -> 
         # Timers saved before chat_context was introduced only have the assembled prompt.
         if run.get('chat_context') is None and run.get('system_prompt'):
             chat_context['messages'] = [
-                {'role': 'system', 'content': strip_deferred_tools_manifest(run['system_prompt'])}
+                {
+                    'role': 'system',
+                    'content': strip_tool_approval_prompt(strip_deferred_tools_manifest(run['system_prompt'])),
+                }
             ]
         form_data = {
             'model': model_id,
@@ -414,7 +416,7 @@ async def execute_due_timer(app, timer_id: str, claim_id: str | None = None) -> 
                 'path': '/api/v1/timers/internal',
                 'query_string': b'',
                 'headers': Headers({}).raw,
-                'client': ('127.0.0.1', 0),
+                'client': ('', 0),
                 'server': ('127.0.0.1', 80),
                 'scheme': 'http',
                 'app': app,

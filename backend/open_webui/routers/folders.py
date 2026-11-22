@@ -4,7 +4,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -13,7 +13,7 @@ from open_webui.constants import ERROR_MESSAGES
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_session
 from open_webui.models.access_grants import AccessGrants
-from open_webui.models.automations import Automations
+from open_webui.models.automations import AutomationResponse, AutomationRuns, Automations
 from open_webui.models.chat_messages import ChatMessages
 from open_webui.models.chats import Chats
 from open_webui.models.config import Config
@@ -23,6 +23,7 @@ from open_webui.models.folders import (
     FolderNameIdResponse,
     Folders,
     FolderUpdateForm,
+    folder_status_ids,
 )
 from open_webui.models.groups import Groups
 from open_webui.models.shared_chats import ChatShareMode
@@ -34,13 +35,17 @@ from open_webui.utils.access_control import (
 )
 from open_webui.utils.access_control.files import can_read_all_folder_files, get_accessible_folder_files
 from open_webui.utils.auth import get_admin_user, get_verified_user
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
 
 router = APIRouter()
+
+# Folder list and board views page through a folder's chats this many at a time.
+FOLDER_PAGE_SIZE = 50
+FolderActivity = Literal['unread', 'generating', 'waiting_for_approval', 'idle']
 
 
 from open_webui.utils.access_control.folders import has_folder_access as _has_folder_access
@@ -84,9 +89,7 @@ async def check_folders_permission(request: Request, user, db=None):
         )
 
 
-############################
 # Get Folders
-############################
 
 
 @router.get('/', response_model=list[FolderNameIdResponse])
@@ -142,9 +145,7 @@ async def get_folders(
     ]
 
 
-############################
 # Create Folder
-############################
 
 
 @router.post('/')
@@ -234,9 +235,7 @@ async def create_folder(
         )
 
 
-############################
 # Get Shared Folders
-############################
 
 
 @router.get('/shared')
@@ -287,9 +286,7 @@ async def get_shared_folders(
     return results
 
 
-############################
 # Get Folders By Id
-############################
 
 
 class FolderResponse(FolderModel):
@@ -327,9 +324,7 @@ async def get_folder_by_id(
     )
 
 
-############################
 # Update Folder Name By Id
-############################
 
 
 @router.post('/{id}/update')
@@ -416,9 +411,7 @@ async def update_folder_name_by_id(
             )
 
 
-############################
 # Update Folder Parent Id By Id
-############################
 
 
 class FolderParentIdForm(BaseModel):
@@ -478,9 +471,7 @@ async def update_folder_parent_id_by_id(
         )
 
 
-############################
 # Update Folder Is Expanded By Id
-############################
 
 
 class FolderIsExpandedForm(BaseModel):
@@ -522,9 +513,7 @@ async def update_folder_is_expanded_by_id(
         )
 
 
-############################
 # Update Folder Access By Id
-############################
 
 
 class FolderAccessGrantsForm(BaseModel):
@@ -584,9 +573,7 @@ async def update_folder_access_by_id(
     }
 
 
-############################
 # Get Shared Folder Chats
-############################
 
 
 @router.get('/{id}/shared/chats')
@@ -596,6 +583,14 @@ async def get_shared_folder_chats(
     page: int | None = Query(None, ge=1),
     sort_by: str = Query('unread_updated_at'),
     sort_dir: str = Query('desc'),
+    workspace: bool = False,
+    search: str = Query('', max_length=256),
+    tag_ids: list[str] = Query(default=[]),
+    user_ids: list[str] = Query(default=[]),
+    # `status` is taken by fastapi's status module here, hence the alias.
+    status_filter: list[str] = Query(default=[], alias='status'),
+    activity: FolderActivity | None = None,
+    updated_at_gte: int | None = Query(None, ge=0),
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -619,24 +614,52 @@ async def get_shared_folder_chats(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
-    limit = 10
+    limit = FOLDER_PAGE_SIZE if workspace else 10
     skip = (page - 1) * limit if page is not None else 0
-    chats = await Chats.get_all_chats_by_folder_id(
-        id,
-        skip=skip,
-        limit=limit if page is not None else 60,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        unread_for_user_id=user.id,
-        db=db,
-    )
-    total = await Chats.count_all_chats_by_folder_id(id, db=db) if page is not None else len(chats)
-
+    if workspace:
+        if sort_by not in ('title', 'updated_at', 'unread_updated_at') or sort_dir not in ('asc', 'desc'):
+            raise HTTPException(status_code=422, detail='Invalid sort')
+        if len(tag_ids) > 50 or len(user_ids) > 50:
+            raise HTTPException(status_code=422, detail='Too many filters')
+        statuses = folder_status_ids(folder.meta)
+        # 'none' (or the older 'not_started') filters for chats without a status.
+        if any(value not in (*statuses, 'none', 'not_started') for value in status_filter):
+            raise HTTPException(status_code=422, detail='Invalid status')
+        chats, total = await Chats.get_folder_chat_page(
+            id,
+            user.id,
+            folder_write_access=has_write,
+            skip=skip,
+            limit=limit,
+            search=search.strip(),
+            tag_ids=tag_ids,
+            status_ids=status_filter,
+            valid_status_ids=statuses,
+            user_ids=user_ids,
+            activity=activity,
+            updated_at_gte=updated_at_gte,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            redis=request.app.state.redis,
+            db=db,
+        )
+    else:
+        chats = await Chats.get_all_chats_by_folder_id(
+            id,
+            skip=skip,
+            limit=limit if page is not None else 60,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            unread_for_user_id=user.id,
+            db=db,
+        )
+        total = await Chats.count_all_chats_by_folder_id(id, db=db) if page is not None else len(chats)
     participant_ids = await Chats.get_participant_ids_by_chat_ids([chat['id'] for chat in chats], db=db)
     user_ids = {chat['user_id'] for chat in chats}
     user_ids.update(uid for ids in participant_ids.values() for uid in ids)
     users = await Users.get_users_by_user_ids(list(user_ids), db=db) if user_ids else []
     names = {u.id: u.name for u in users}
+    pending_approval_ids = await ChatMessages.get_chat_ids_with_pending_approval([chat['id'] for chat in chats], db=db)
     for chat in chats:
         uid = chat['user_id']
         chat['owner_name'] = names.get(uid, 'Unknown')
@@ -650,6 +673,7 @@ async def get_shared_folder_chats(
             ),
         )
         chat['active'] = False
+        chat['pending_approval'] = chat['id'] in pending_approval_ids
         if chat['user_id'] != user.id:
             chat['last_read_at'] = chat['updated_at']
         if await has_active_tasks(request.app.state.redis, chat['id']):
@@ -702,9 +726,106 @@ async def mark_folder_chats_read_by_id(
     }
 
 
-############################
+async def check_folder_read_access(request: Request, id: str, user, db: AsyncSession) -> FolderModel:
+    """Return the folder if the user may read it (owner, admin or shared), else raise."""
+    await check_folders_permission(request, user, db=db)
+    folder = await Folders.get_folder_by_id(id, db=db)
+    if not folder:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    if user.role != 'admin' and folder.user_id != user.id and not await _has_folder_access(user.id, folder, 'read', db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    return folder
+
+
+@router.get('/{id}/automations')
+async def get_folder_automations(
+    request: Request, id: str, user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)
+):
+    """The folder's automations, whoever made them. Only creators edit; folder editors may pause and run."""
+    folder = await check_folder_read_access(request, id, user, db)
+    automations = await Automations.get_by_folder(id, db=db)
+    if not automations:
+        return []
+    latest = await AutomationRuns.get_latest_batch([item.id for item in automations], db=db)
+    creators = {u.id: u.name for u in await Users.get_users_by_user_ids(list({a.user_id for a in automations}), db=db)}
+    has_write = (
+        user.role == 'admin' or folder.user_id == user.id or await _has_folder_access(user.id, folder, 'write', db)
+    )
+    return [
+        {
+            **AutomationResponse(**item.model_dump(), last_run=latest.get(item.id)).model_dump(),
+            'user_name': creators.get(item.user_id) or 'Unknown',
+            'can_edit': item.user_id == user.id,
+            'can_manage': item.user_id == user.id or has_write,
+        }
+        for item in automations
+    ]
+
+
+@router.get('/{id}/users')
+async def get_folder_users(
+    request: Request, id: str, user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)
+):
+    await check_folder_read_access(request, id, user, db)
+    counts = await Chats.get_participant_counts_by_folder_id(id, db=db)
+    users = await Users.get_users_by_user_ids(list(counts), db=db) if counts else []
+    names = {u.id: u.name for u in users}
+    return sorted(
+        [{'id': user_id, 'name': names.get(user_id) or 'Unknown', 'count': count} for user_id, count in counts.items()],
+        key=lambda entry: (entry['id'] != user.id, entry['name'].casefold()),
+    )
+
+
+@router.get('/{id}/tags')
+async def get_folder_tags(
+    request: Request, id: str, user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)
+):
+    await check_folder_read_access(request, id, user, db)
+    return await Chats.get_tag_counts_by_folder_id(id, db=db)
+
+
+class FolderChatStatusForm(BaseModel):
+    # null clears the status.
+    status: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+@router.patch('/{id}/chats/{chat_id}/status')
+async def update_folder_chat_status(
+    request: Request,
+    id: str,
+    chat_id: str,
+    form_data: FolderChatStatusForm,
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    folder = await check_folder_read_access(request, id, user, db)
+    if form_data.status is not None and form_data.status not in folder_status_ids(folder.meta):
+        raise HTTPException(status_code=422, detail='Invalid status')
+    # Folder editors may set status on any chat in the folder; others only on their own.
+    has_write = (
+        user.role == 'admin' or folder.user_id == user.id or await _has_folder_access(user.id, folder, 'write', db)
+    )
+    if not await Chats.update_chat_folder_status_by_id(
+        chat_id, id, None if has_write else user.id, form_data.status, db=db
+    ):
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    await publish_event(
+        request,
+        EVENTS.CHAT_UPDATED,
+        actor=user,
+        subject_id=chat_id,
+        data={'folder_id': id, 'folder_status': form_data.status},
+    )
+    return {'id': chat_id, 'status': form_data.status}
+
+
 # Delete Folder By Id
-############################
 
 
 @router.delete('/{id}')

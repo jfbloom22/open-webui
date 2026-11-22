@@ -6,10 +6,12 @@
 	import dayjs from 'dayjs';
 	import calendar from 'dayjs/plugin/calendar';
 	import localizedFormat from 'dayjs/plugin/localizedFormat';
-	import { getContext, onMount, tick } from 'svelte';
+	import { getContext, onMount, onDestroy, tick } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
+	import { updateFolderChatLists } from '$lib/stores/folderStates';
+	import { closeChatTabs } from '$lib/stores/chatViewStates';
 
 	import {
 		archiveChatById,
@@ -55,6 +57,7 @@
 	let allChatsLoaded = false;
 	let chatListLoading = false;
 	let searchDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
+	let searchController: AbortController;
 
 	let selectedChatId: string | null = null;
 	let showDeleteConfirmDialog = false;
@@ -67,14 +70,22 @@
 	});
 
 	const loadChats = async () => {
+		searchController?.abort();
+		searchController = new AbortController();
+		const { signal } = searchController;
+		chatListLoading = false;
 		page = 1;
 		chatList = null;
-		chatList = await getArchivedChatList(localStorage.token, page, getFilter());
+		const res = await getArchivedChatList(localStorage.token, page, getFilter(), signal);
+		if (signal.aborted) return;
+		chatList = res;
 		allChatsLoaded = (chatList ?? []).length === 0;
-		chatCount = await getArchivedChatCount(localStorage.token);
+		const count = await getArchivedChatCount(localStorage.token);
+		if (!signal.aborted) chatCount = count;
 	};
 
 	const searchHandler = () => {
+		searchController?.abort();
 		chatList = null;
 		if (searchDebounceTimeout) {
 			clearTimeout(searchDebounceTimeout);
@@ -88,10 +99,13 @@
 	};
 
 	const loadMoreChats = async () => {
+		if (chatListLoading || !chatList || allChatsLoaded || searchController.signal.aborted) return;
+		const { signal } = searchController;
 		chatListLoading = true;
 		page += 1;
 
-		const newChatList = await getArchivedChatList(localStorage.token, page, getFilter());
+		const newChatList = await getArchivedChatList(localStorage.token, page, getFilter(), signal);
+		if (signal.aborted) return;
 		allChatsLoaded = newChatList.length === 0;
 
 		if (newChatList.length > 0) {
@@ -122,9 +136,11 @@
 
 	const unarchiveHandler = async (id: string) => {
 		const index = chatList?.findIndex((chat) => chat.id === id) ?? -1;
-		await archiveChatById(localStorage.token, id).catch((error) => {
+		const restored = await archiveChatById(localStorage.token, id).catch((error) => {
 			toast.error(`${error}`);
 		});
+		if (!restored) return;
+		updateFolderChatLists(restored, restored.folder_id);
 
 		chatList = chatList?.filter((chat) => chat.id !== id) ?? null;
 		if (chatCount !== null) chatCount -= 1;
@@ -140,9 +156,12 @@
 		if (!selectedChatId) return;
 
 		const id = selectedChatId;
-		await deleteChatById(localStorage.token, id).catch((error) => {
+		const deleted = await deleteChatById(localStorage.token, id).catch((error) => {
 			toast.error(`${error}`);
 		});
+		if (!deleted) return;
+		updateFolderChatLists({ id }, undefined, true);
+		closeChatTabs(id);
 
 		chatList = chatList?.filter((chat) => chat.id !== id) ?? null;
 		if (chatCount !== null) chatCount -= 1;
@@ -172,6 +191,10 @@
 	};
 
 	onMount(loadChats);
+	onDestroy(() => {
+		searchController?.abort();
+		if (searchDebounceTimeout) clearTimeout(searchDebounceTimeout);
+	});
 </script>
 
 <ConfirmDialog
@@ -211,6 +234,7 @@
 				class="min-w-0 flex-1 bg-transparent py-0.5 text-xs text-gray-700 outline-hidden placeholder:text-gray-300 dark:text-gray-300 dark:placeholder:text-gray-700"
 				bind:value={query}
 				on:input={searchHandler}
+				aria-label={$i18n.t('Search Chats')}
 				placeholder={$i18n.t('Search')}
 				maxlength="500"
 			/>

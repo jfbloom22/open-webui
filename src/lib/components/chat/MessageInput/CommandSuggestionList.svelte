@@ -5,9 +5,14 @@
 	import Skills from './Commands/Skills.svelte';
 	import Emojis from './Commands/Emojis.svelte';
 	import DropdownMenu from '$lib/components/common/DropdownMenu.svelte';
+	import type { Readable, Writable } from 'svelte/store';
 
 	export let char = '';
 	export let query = '';
+	export let selectedTerminalId: Readable<string | null>;
+	export let terminalSkills: Writable<any[]>;
+	export let modelId: string | null | (() => string | null) = null;
+	$: selectedModelId = typeof modelId === 'function' ? modelId() : modelId;
 	export let command: (payload: {
 		id: string;
 		label: string;
@@ -19,6 +24,8 @@
 	export let onUpload: (e: any) => void = () => {};
 	export let onCompact: () => void = () => {};
 	export let onStatus: () => void = () => {};
+	export let onComments: () => void = () => {};
+	export let onSide: () => void = () => {};
 	export let onFork: () => void = () => {};
 	export let onModel: () => void = () => {};
 	export let onCompare: (() => void) | null = null;
@@ -29,6 +36,8 @@
 	export let canCompact: boolean | (() => boolean) = false;
 	export let compactDisabled: boolean | (() => boolean) = false;
 	export let canStatus: boolean | (() => boolean) = false;
+	export let canComments: boolean | (() => boolean) = false;
+	export let canSide: boolean | (() => boolean) = false;
 	export let canFork: boolean | (() => boolean) = false;
 	export let forkDisabled: boolean | (() => boolean) = false;
 	export let canTemporary: boolean | (() => boolean) = false;
@@ -42,6 +51,8 @@
 	$: isCompactDisabled =
 		typeof compactDisabled === 'function' ? compactDisabled() : compactDisabled;
 	$: statusAvailable = typeof canStatus === 'function' ? canStatus() : canStatus;
+	$: commentsAvailable = typeof canComments === 'function' ? canComments() : canComments;
+	$: sideAvailable = typeof canSide === 'function' ? canSide() : canSide;
 	$: forkAvailable = typeof canFork === 'function' ? canFork() : canFork;
 	$: isForkDisabled = typeof forkDisabled === 'function' ? forkDisabled() : forkDisabled;
 	$: temporaryAvailable = typeof canTemporary === 'function' ? canTemporary() : canTemporary;
@@ -105,6 +116,9 @@
 		<div class="max-h-60 overflow-y-auto overflow-x-hidden scrollbar-thin">
 			{#if char === '/'}
 				<SlashCommands
+					{selectedTerminalId}
+					{terminalSkills}
+					modelId={selectedModelId}
 					bind:this={suggestionElement}
 					{query}
 					canCompare={onCompare !== null}
@@ -112,6 +126,8 @@
 					canCompact={compactAvailable}
 					compactDisabled={isCompactDisabled}
 					canStatus={statusAvailable}
+					canComments={commentsAvailable}
+					canSide={sideAvailable}
 					canFork={forkAvailable}
 					forkDisabled={isForkDisabled}
 					canTemporary={temporaryAvailable}
@@ -136,6 +152,12 @@
 						} else if (type === 'command' && data.id === 'status') {
 							command({ id: data.id, label: data.id });
 							onStatus();
+						} else if (type === 'command' && data.id === 'comments') {
+							command({ id: data.id, label: data.id });
+							onComments();
+						} else if (type === 'command' && data.id === 'side') {
+							command({ id: data.id, label: data.id });
+							onSide();
 						} else if (type === 'command' && data.id === 'fork') {
 							command({ id: data.id, label: data.id });
 							onFork();
@@ -195,6 +217,8 @@
 				/>
 			{:else if char === '@'}
 				<AtCommands
+					{selectedTerminalId}
+					modelId={selectedModelId}
 					bind:this={suggestionElement}
 					{query}
 					fileUploadEnabled={isFileUploadEnabled}
@@ -235,6 +259,9 @@
 				/>
 			{:else if char === '$'}
 				<Skills
+					{selectedTerminalId}
+					{terminalSkills}
+					modelId={selectedModelId}
 					bind:this={suggestionElement}
 					{query}
 					bind:filteredItems

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { TerminalTarget } from '$lib/apis/terminal';
+	export let target: TerminalTarget;
 	import { getContext, onMount, onDestroy } from 'svelte';
 	import type { Readable } from 'svelte/store';
 	import type { i18n as I18n } from 'i18next';
@@ -9,9 +11,6 @@
 	import Dropdown from '../../common/Dropdown.svelte';
 	import DropdownMenu from '../../common/DropdownMenu.svelte';
 
-	export let baseUrl: string;
-	export let apiKey: string;
-	export let chatId: string | null = null;
 	export let paths: [string, string];
 	export let onClose: () => void;
 
@@ -40,10 +39,8 @@
 		result = null;
 		try {
 			const response = await compareFiles(
-				baseUrl,
-				apiKey,
+				target,
 				{ original, revised, ignore_whitespace: ignoreWhitespace },
-				chatId ?? undefined,
 				request.signal
 			);
 			if (!request.signal.aborted) result = response;
@@ -218,11 +215,11 @@
 		{/each}
 	</div>
 	{#if loading}
-		<div class="flex items-center gap-2 p-4" role="status">
+		<div class="flex flex-1 items-center justify-center gap-2 p-4 text-center" role="status">
 			<Spinner className="size-3" />{$i18n.t('Extracting text and comparing…')}
 		</div>
 	{:else if error}
-		<div class="p-4" role="alert">
+		<div class="flex flex-1 flex-col items-center justify-center p-4 text-center" role="alert">
 			<p class="break-words">{error}</p>
 			<button class="control mt-2" on:click={run}>{$i18n.t('Retry')}</button>
 		</div>
@@ -237,7 +234,7 @@
 				>+{result.additions}</span
 			>
 			<span
-				class="text-red-500 dark:text-red-400"
+				class="text-gray-500 dark:text-gray-400"
 				aria-label={$i18n.t('{{count}} removed lines', { count: result.deletions })}
 				>−{result.deletions}</span
 			>
@@ -252,7 +249,9 @@
 			</span>
 		</div>
 		{#if result.hunks.length === 0}
-			<p class="p-4" role="status">{$i18n.t('No text differences')}</p>
+			<p class="flex flex-1 items-center justify-center p-4 text-center" role="status">
+				{$i18n.t('No text differences')}
+			</p>
 		{:else}
 			<!-- Keyboard focus lets users scroll long comparisons without a pointer. -->
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -395,7 +394,7 @@
 	}
 	.removed {
 		background-color: var(--color-red-100);
-		color: var(--color-red-900);
+		color: var(--color-gray-600);
 		background-image: repeating-linear-gradient(
 			-45deg,
 			#ef4444 0,
@@ -411,7 +410,7 @@
 		color: var(--color-green-600);
 	}
 	.removed .marker {
-		color: var(--color-red-500);
+		color: var(--color-gray-500);
 	}
 	.added .changed {
 		background: rgb(22 163 74 / 0.38);
@@ -428,13 +427,13 @@
 	}
 	:global(.dark) .removed {
 		background-color: color-mix(in oklab, var(--color-red-500) 15%, transparent);
-		color: var(--color-red-300);
+		color: var(--color-gray-400);
 	}
 	:global(.dark) .added .marker {
 		color: var(--color-green-400);
 	}
 	:global(.dark) .removed .marker {
-		color: var(--color-red-400);
+		color: var(--color-gray-400);
 	}
 	:global(.dark) .number {
 		color: var(--color-gray-600);

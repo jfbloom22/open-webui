@@ -12,6 +12,7 @@
 	import AdminSettingField from './AdminSettingField.svelte';
 	import AdminSettingRow from './AdminSettingRow.svelte';
 	import AdminSettingSection from './AdminSettingSection.svelte';
+	import AdminSettingSaveButton from './AdminSettingSaveButton.svelte';
 
 	const i18n: any = getContext('i18n');
 
@@ -60,6 +61,125 @@
 	];
 
 	let webConfig: any = null;
+
+	let savedConfig: Record<string, any> | null = null;
+	$: settingLabels = {
+		ENABLE_WEB_SEARCH: $i18n.t('settings.admin.web.webSearch.label'),
+		ENABLE_WEB_SEARCH_CONFIRMATION: $i18n.t('settings.admin.web.webSearchConfirmation.label'),
+		WEB_SEARCH_CONFIRMATION_CONTENT: $i18n.t(
+			'settings.admin.web.webSearchConfirmationContent.label'
+		),
+		WEB_SEARCH_ENGINE: $i18n.t('settings.admin.web.webSearchEngine.label'),
+		OLLAMA_CLOUD_WEB_SEARCH_API_KEY: $i18n.t('settings.admin.web.ollamaCloudApiKey.label'),
+		PERPLEXITY_SEARCH_API_URL: $i18n.t('settings.admin.web.perplexitySearchApiUrl.label'),
+		PERPLEXITY_API_KEY: $i18n.t('settings.admin.web.perplexityApiKey.label'),
+		SEARXNG_QUERY_URL: $i18n.t('settings.admin.web.searxngQueryUrl.label'),
+		SEARXNG_LANGUAGE: $i18n.t('settings.admin.web.searxngSearchLanguageAllEnEsDeFrEtc.label'),
+		YACY_QUERY_URL: $i18n.t('settings.admin.web.yacyInstanceUrl.label'),
+		YACY_USERNAME: $i18n.t('settings.admin.web.yacyUsername.label'),
+		YACY_PASSWORD: $i18n.t('settings.admin.web.yacyPassword.label'),
+		GOOGLE_PSE_API_KEY: $i18n.t('settings.admin.web.googlePseApiKey.label'),
+		GOOGLE_PSE_ENGINE_ID: $i18n.t('settings.admin.web.googlePseEngineId.label'),
+		BRAVE_SEARCH_API_KEY: $i18n.t('settings.admin.web.braveSearchApiKey.label'),
+		BRAVE_SEARCH_CONTEXT_TOKENS: $i18n.t('settings.admin.web.contextTokens.label'),
+		KAGI_SEARCH_API_KEY: $i18n.t('settings.admin.web.kagiSearchApiKey.label'),
+		MOJEEK_SEARCH_API_KEY: $i18n.t('settings.admin.web.mojeekSearchApiKey.label'),
+		BOCHA_SEARCH_API_KEY: $i18n.t('settings.admin.web.bochaSearchApiKey.label'),
+		SERPSTACK_API_KEY: $i18n.t('settings.admin.web.serpstackApiKey.label'),
+		SERPER_API_KEY: $i18n.t('settings.admin.web.serperApiKey.label'),
+		SERPHOUSE_API_KEY: $i18n.t('settings.admin.web.serphouseApiKey.label'),
+		SERPHOUSE_DOMAIN: $i18n.t('settings.admin.web.serphouseDomain.label'),
+		SERPLY_API_KEY: $i18n.t('settings.admin.web.serplyApiKey.label'),
+		TAVILY_API_KEY: $i18n.t('settings.admin.web.tavilyApiKey.label'),
+		TAVILY_SEARCH_DEPTH: $i18n.t('settings.admin.web.tavilySearchDepth.label'),
+		STAAN_API_KEY: $i18n.t('Staan API Key'),
+		STAAN_MARKET: $i18n.t('Market'),
+		STAAN_MAX_SNIPPETS: $i18n.t('Max Snippets'),
+		SEARCHAPI_API_KEY: $i18n.t('settings.admin.web.searchapiApiKey.label'),
+		SEARCHAPI_ENGINE: $i18n.t('settings.admin.web.searchapiEngine.label'),
+		SERPAPI_API_KEY: $i18n.t('settings.admin.web.serpapiApiKey.label'),
+		SERPAPI_ENGINE: $i18n.t('settings.admin.web.serpapiEngine.label'),
+		JINA_API_BASE_URL: $i18n.t('settings.admin.web.jinaApiBaseUrl.label'),
+		JINA_API_KEY: $i18n.t('settings.admin.web.jinaApiKey.label'),
+		BING_SEARCH_V7_ENDPOINT: $i18n.t('settings.admin.web.bingSearchV7Endpoint.label'),
+		BING_SEARCH_V7_SUBSCRIPTION_KEY: $i18n.t(
+			'settings.admin.web.bingSearchV7SubscriptionKey.label'
+		),
+		EXA_API_KEY: $i18n.t('settings.admin.web.exaApiKey.label'),
+		EXA_MAX_CONTENT_LENGTH: $i18n.t('settings.admin.web.maxContentLength.label'),
+		PERPLEXITY_MODEL: $i18n.t('settings.admin.web.perplexityModel.label'),
+		PERPLEXITY_SEARCH_CONTEXT_USAGE: $i18n.t(
+			'settings.admin.web.perplexitySearchContextUsage.label'
+		),
+		MICROSOFT_WEB_IQ_API_BASE_URL: $i18n.t('settings.admin.web.microsoftWebIqApiBaseUrl.label'),
+		MICROSOFT_WEB_IQ_API_KEY: $i18n.t('settings.admin.web.microsoftWebIqApiKey.label'),
+		MICROSOFT_WEB_IQ_LANGUAGE: $i18n.t('settings.admin.web.language.label'),
+		SOUGOU_API_SID: $i18n.t('settings.admin.web.sougouSearchApiSid.label'),
+		SOUGOU_API_SK: $i18n.t('settings.admin.web.sougouSearchApiSk.label'),
+		FIRECRAWL_API_BASE_URL: $i18n.t('settings.admin.web.firecrawlApiBaseUrl.label'),
+		FIRECRAWL_API_KEY: $i18n.t('settings.admin.web.firecrawlApiKey.label'),
+		FIRECRAWL_TIMEOUT: $i18n.t('settings.admin.web.firecrawlTimeoutS.label'),
+		EXTERNAL_WEB_SEARCH_URL: $i18n.t('settings.admin.web.externalWebSearchUrl.label'),
+		EXTERNAL_WEB_SEARCH_API_KEY: $i18n.t('settings.admin.web.externalWebSearchApiKey.label'),
+		YANDEX_WEB_SEARCH_URL: $i18n.t('settings.admin.web.yandexWebSearchUrl.label'),
+		YANDEX_WEB_SEARCH_API_KEY: $i18n.t('settings.admin.web.yandexWebSearchApiKey.label'),
+		YANDEX_WEB_SEARCH_CONFIG: $i18n.t('settings.admin.web.yandexWebSearchConfig.label'),
+		YOUCOM_API_KEY: $i18n.t('settings.admin.web.youComApiKey.label'),
+		LINKUP_API_KEY: $i18n.t('settings.admin.web.linkupApiKey.label'),
+		LINKUP_SEARCH_PARAMS: $i18n.t('settings.admin.web.parameters.label'),
+		OPENSERP_BASE_URL: $i18n.t('settings.admin.web.openserpUrl.label'),
+		DDGS_BACKEND: $i18n.t('settings.admin.web.ddgsBackend.label'),
+		WEB_SEARCH_RESULT_COUNT: $i18n.t('settings.admin.web.searchResultCount.label'),
+		WEB_SEARCH_CONCURRENT_REQUESTS: $i18n.t('settings.admin.web.concurrentRequests.label'),
+		WEB_FETCH_MAX_CONTENT_LENGTH: $i18n.t('settings.admin.web.fetchUrlContentLengthLimit.label'),
+		WEB_SEARCH_DOMAIN_FILTER_LIST: $i18n.t('settings.admin.web.domainFilterList.label'),
+		BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL: $i18n.t(
+			'settings.admin.web.bypassEmbeddingAndRetrieval.label'
+		),
+		BYPASS_WEB_SEARCH_WEB_LOADER: $i18n.t('settings.admin.web.bypassWebLoader.label'),
+		WEB_SEARCH_TRUST_ENV: $i18n.t('settings.admin.web.trustProxyEnvironment.label'),
+		WEB_LOADER_ENGINE: $i18n.t('settings.admin.web.webLoaderEngine.label'),
+		WEB_LOADER_TIMEOUT: $i18n.t('settings.admin.web.timeout.label'),
+		ENABLE_WEB_LOADER_SSL_VERIFICATION: $i18n.t('settings.admin.web.verifySslCertificate.label'),
+		PLAYWRIGHT_WS_URL: $i18n.t('settings.admin.web.playwrightWebsocketUrl.label'),
+		PLAYWRIGHT_TIMEOUT: $i18n.t('settings.admin.web.playwrightTimeoutMs.label'),
+		TAVILY_EXTRACT_DEPTH: $i18n.t('settings.admin.web.tavilyExtractDepth.label'),
+		EXTERNAL_WEB_LOADER_URL: $i18n.t('settings.admin.web.externalWebLoaderUrl.label'),
+		EXTERNAL_WEB_LOADER_API_KEY: $i18n.t('settings.admin.web.externalWebLoaderApiKey.label'),
+		WEB_LOADER_CONCURRENT_REQUESTS: $i18n.t('settings.admin.web.concurrentRequests.label'),
+		YOUTUBE_LOADER_LANGUAGE: $i18n.t('settings.admin.web.youtubeLanguage.label'),
+		YOUTUBE_LOADER_PROXY_URL: $i18n.t('settings.admin.web.youtubeProxyUrl.label')
+	};
+	const sensitiveKeys = [
+		'OLLAMA_CLOUD_WEB_SEARCH_API_KEY',
+		'PERPLEXITY_API_KEY',
+		'YACY_PASSWORD',
+		'GOOGLE_PSE_API_KEY',
+		'BRAVE_SEARCH_API_KEY',
+		'KAGI_SEARCH_API_KEY',
+		'MOJEEK_SEARCH_API_KEY',
+		'BOCHA_SEARCH_API_KEY',
+		'SERPSTACK_API_KEY',
+		'SERPER_API_KEY',
+		'SERPHOUSE_API_KEY',
+		'SERPLY_API_KEY',
+		'TAVILY_API_KEY',
+		'STAAN_API_KEY',
+		'SEARCHAPI_API_KEY',
+		'SERPAPI_API_KEY',
+		'JINA_API_KEY',
+		'BING_SEARCH_V7_SUBSCRIPTION_KEY',
+		'EXA_API_KEY',
+		'MICROSOFT_WEB_IQ_API_KEY',
+		'SOUGOU_API_SID',
+		'SOUGOU_API_SK',
+		'FIRECRAWL_API_KEY',
+		'EXTERNAL_WEB_SEARCH_API_KEY',
+		'YANDEX_WEB_SEARCH_API_KEY',
+		'YOUCOM_API_KEY',
+		'LINKUP_API_KEY',
+		'EXTERNAL_WEB_LOADER_API_KEY'
+	];
 	const inputClass =
 		'w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors placeholder:text-gray-300 focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:placeholder:text-gray-700 dark:focus:border-blue-500';
 	const textareaClass =
@@ -120,6 +240,10 @@
 		if (Array.isArray(webConfig.YOUTUBE_LOADER_LANGUAGE)) {
 			webConfig.YOUTUBE_LOADER_LANGUAGE = webConfig.YOUTUBE_LOADER_LANGUAGE.join(',');
 		}
+
+		if (res) {
+			savedConfig = structuredClone(webConfig);
+		}
 	};
 
 	onMount(async () => {
@@ -160,6 +284,8 @@
 				typeof webConfig.LINKUP_SEARCH_PARAMS === 'object'
 					? JSON.stringify(webConfig.LINKUP_SEARCH_PARAMS ?? {}, null, 2)
 					: (webConfig.LINKUP_SEARCH_PARAMS ?? '');
+
+			savedConfig = structuredClone(webConfig);
 		}
 	});
 </script>
@@ -209,6 +335,7 @@
 									'Your query will be sent to the configured web search provider.'
 								)}
 								bind:value={webConfig.WEB_SEARCH_CONFIRMATION_CONTENT}
+								maxSize={200}
 							/>
 						</AdminSettingField>
 					{/if}
@@ -260,13 +387,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'perplexity_search'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="perplexity-search-api-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.perplexitySearchApiUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="perplexity-search-api-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Perplexity Search API URL')}
@@ -298,13 +429,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'searxng'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-left text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="searxng-query-url"
+									class=" self-left text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.searxngQueryUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="searxng-query-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Searxng Query URL')}
@@ -316,13 +451,17 @@
 								</div>
 							</div>
 							<div class="mb-2.5 flex w-full flex-col">
-								<div class=" self-left text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="searxng-language"
+									class=" self-left text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.searxngSearchLanguageAllEnEsDeFrEtc.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="searxng-language"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Searxng search language')}
@@ -337,13 +476,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'yacy'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="yacy-query-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.yacyInstanceUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="yacy-query-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Yacy URL (e.g. http://yacy.example.com:8090)')}
@@ -357,11 +500,15 @@
 						<div class="mb-2.5 flex w-full flex-col">
 							<div class="flex gap-2">
 								<div class="w-full">
-									<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+									<label
+										for="yacy-username"
+										class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									>
 										{$i18n.t('settings.admin.web.yacyUsername.label')}
-									</div>
+									</label>
 
 									<input
+										id="yacy-username"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										placeholder={$i18n.t('Enter Yacy Username')}
 										bind:value={webConfig.YACY_USERNAME}
@@ -396,13 +543,17 @@
 								/>
 							</div>
 							<div class="mt-1.5">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="google-pse-engine-id"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.googlePseEngineId.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="google-pse-engine-id"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Google PSE Engine Id')}
@@ -441,13 +592,17 @@
 								/>
 							</div>
 							<div class="mt-1.5">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="brave-context-tokens"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.contextTokens.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="brave-context-tokens"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="number"
 											min="1024"
@@ -545,13 +700,17 @@
 								/>
 							</div>
 							<div class="mt-1.5">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="serphouse-domain"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.serphouseDomain.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="serphouse-domain"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder="google.com"
@@ -593,10 +752,17 @@
 
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="tavily-search-depth"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.tavilySearchDepth.label')}
-								</div>
-								<SettingsSelect bind:value={webConfig.TAVILY_SEARCH_DEPTH} className="w-full">
+								</label>
+								<SettingsSelect
+									id="tavily-search-depth"
+									bind:value={webConfig.TAVILY_SEARCH_DEPTH}
+									className="w-full"
+								>
 									<option value="ultra-fast">{$i18n.t('Ultra-fast')}</option>
 									<option value="fast">{$i18n.t('Fast')}</option>
 									<option value="basic">{$i18n.t('Basic')}</option>
@@ -662,13 +828,17 @@
 								/>
 							</div>
 							<div class="mt-1.5">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="searchapi-engine"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.searchapiEngine.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="searchapi-engine"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter SearchApi Engine')}
@@ -693,13 +863,17 @@
 								/>
 							</div>
 							<div class="mt-1.5">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="serpapi-engine"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.serpapiEngine.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="serpapi-engine"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter SerpApi Engine')}
@@ -713,13 +887,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'jina'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="jina-api-base-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.jinaApiBaseUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="jina-api-base-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Jina API Base URL')}
@@ -745,13 +923,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'bing'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="bing-search-v7-endpoint"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.bingSearchV7Endpoint.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="bing-search-v7-endpoint"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Bing Search V7 Endpoint')}
@@ -821,10 +1003,14 @@
 
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class="self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="perplexity-model"
+									class="self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.perplexityModel.label')}
-								</div>
+								</label>
 								<input
+									id="perplexity-model"
 									list="perplexity-model-list"
 									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 									bind:value={webConfig.PERPLEXITY_MODEL}
@@ -842,10 +1028,14 @@
 
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="perplexity-search-context-usage"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.perplexitySearchContextUsage.label')}
-								</div>
+								</label>
 								<SettingsSelect
+									id="perplexity-search-context-usage"
 									bind:value={webConfig.PERPLEXITY_SEARCH_CONTEXT_USAGE}
 									className="w-full"
 								>
@@ -858,13 +1048,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'microsoft_web_iq'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="microsoft-web-iq-api-base-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.microsoftWebIqApiBaseUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="microsoft-web-iq-api-base-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Microsoft Web IQ API Base URL')}
@@ -888,11 +1082,15 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="microsoft-web-iq-language"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.language.label')}
-								</div>
+								</label>
 
 								<input
+									id="microsoft-web-iq-language"
 									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 									type="text"
 									placeholder={$i18n.t('Enter language')}
@@ -931,13 +1129,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'firecrawl'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="firecrawl-api-base-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.firecrawlApiBaseUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="firecrawl-api-base-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Firecrawl API Base URL')}
@@ -961,13 +1163,17 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="firecrawl-timeout"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.firecrawlTimeoutS.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="firecrawl-timeout"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="number"
 											placeholder={$i18n.t('Enter Firecrawl Timeout')}
@@ -981,13 +1187,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'external'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="external-web-search-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.externalWebSearchUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="external-web-search-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter External Web Search URL')}
@@ -1013,13 +1223,17 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'yandex'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="yandex-web-search-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.yandexWebSearchUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="yandex-web-search-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Yandex Web Search URL')}
@@ -1056,6 +1270,7 @@
 									<Textarea
 										className={textareaClass}
 										bind:value={webConfig.YANDEX_WEB_SEARCH_CONFIG}
+										maxSize={200}
 										placeholder={$i18n.t(
 											'Leave empty to use the default config, or enter a valid json (see https://yandex.cloud/en/docs/search-api/api-ref/WebSearch/search#yandex.cloud.searchapi.v2.WebSearchRequest)'
 										)}
@@ -1099,6 +1314,7 @@
 								<Textarea
 									className={textareaClass}
 									bind:value={webConfig.LINKUP_SEARCH_PARAMS}
+									maxSize={200}
 									placeholder={`{\n  "depth": "standard",\n  "outputType": "sourcedAnswer"\n}`}
 								/>
 							</div>
@@ -1106,12 +1322,16 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'openserp'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="openserp-base-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.openserpUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex-1">
 									<input
+										id="openserp-base-url"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter OpenSERP Base URL')}
@@ -1127,13 +1347,20 @@
 					{#if webConfig.WEB_SEARCH_ENGINE === 'duckduckgo'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="ddgs-backend"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.ddgsBackend.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
-										<SettingsSelect bind:value={webConfig.DDGS_BACKEND} className="w-full">
+										<SettingsSelect
+											id="ddgs-backend"
+											bind:value={webConfig.DDGS_BACKEND}
+											className="w-full"
+										>
 											<option value="auto">{$i18n.t('Auto (Random)')}</option>
 											<option value="bing">{$i18n.t('Bing')}</option>
 											<option value="brave">{$i18n.t('Brave')}</option>
@@ -1159,11 +1386,15 @@
 					>
 						<div class="flex gap-2">
 							<div class="w-full">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="web-search-result-count"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.searchResultCount.label')}
-								</div>
+								</label>
 
 								<input
+									id="web-search-result-count"
 									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 									placeholder={$i18n.t('settings.admin.web.searchResultCount.label')}
 									bind:value={webConfig.WEB_SEARCH_RESULT_COUNT}
@@ -1172,16 +1403,20 @@
 							</div>
 
 							<div class="w-full">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="web-search-concurrent-requests"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									<Tooltip
 										content={$i18n.t('settings.admin.web.searchResultCount.description')}
 										placement="top-start"
 									>
 										{$i18n.t('settings.admin.web.concurrentRequests.label')}
 									</Tooltip>
-								</div>
+								</label>
 
 								<input
+									id="web-search-concurrent-requests"
 									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 									placeholder={$i18n.t('settings.admin.web.concurrentRequests.label')}
 									bind:value={webConfig.WEB_SEARCH_CONCURRENT_REQUESTS}
@@ -1195,8 +1430,10 @@
 					<AdminSettingField
 						label={$i18n.t('settings.admin.web.fetchUrlContentLengthLimit.label')}
 						description={$i18n.t('settings.admin.web.fetchUrlContentLengthLimit.description')}
+						forId="web-fetch-max-content-length"
 					>
 						<input
+							id="web-fetch-max-content-length"
 							class={inputClass}
 							placeholder={$i18n.t('No limit')}
 							bind:value={webConfig.WEB_FETCH_MAX_CONTENT_LENGTH}
@@ -1208,8 +1445,10 @@
 					<AdminSettingField
 						label={$i18n.t('settings.admin.web.domainFilterList.label')}
 						description={$i18n.t('settings.admin.web.domainFilterList.description')}
+						forId="web-search-domain-filter-list"
 					>
 						<input
+							id="web-search-domain-filter-list"
 							class={inputClass}
 							placeholder={$i18n.t(
 								'Enter domains separated by commas (e.g., example.com,site.org,!excludedsite.com)'
@@ -1296,8 +1535,10 @@
 					<AdminSettingField
 						label={$i18n.t('settings.admin.web.timeout.label')}
 						description={$i18n.t('settings.admin.web.timeout.description')}
+						forId="web-loader-timeout"
 					>
 						<input
+							id="web-loader-timeout"
 							class={inputClass}
 							placeholder={$i18n.t('settings.admin.web.timeout.label')}
 							bind:value={webConfig.WEB_LOADER_TIMEOUT}
@@ -1317,13 +1558,17 @@
 				{:else if webConfig.WEB_LOADER_ENGINE === 'playwright'}
 					<div class="mb-2.5 flex w-full flex-col">
 						<div>
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<label
+								for="playwright-ws-url"
+								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+							>
 								{$i18n.t('settings.admin.web.playwrightWebsocketUrl.label')}
-							</div>
+							</label>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
+										id="playwright-ws-url"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Playwright WebSocket URL')}
@@ -1335,13 +1580,17 @@
 						</div>
 
 						<div class="mt-2">
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<label
+								for="playwright-timeout"
+								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+							>
 								{$i18n.t('settings.admin.web.playwrightTimeoutMs.label')}
-							</div>
+							</label>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
+										id="playwright-timeout"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										placeholder={$i18n.t('Enter Playwright Timeout')}
 										bind:value={webConfig.PLAYWRIGHT_TIMEOUT}
@@ -1354,13 +1603,17 @@
 				{:else if webConfig.WEB_LOADER_ENGINE === 'firecrawl' && (!webConfig.ENABLE_WEB_SEARCH || webConfig.WEB_SEARCH_ENGINE !== 'firecrawl')}
 					<div class="mb-2.5 flex w-full flex-col">
 						<div>
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<label
+								for="web-loader-firecrawl-api-base-url"
+								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+							>
 								{$i18n.t('settings.admin.web.firecrawlApiBaseUrl.label')}
-							</div>
+							</label>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
+										id="web-loader-firecrawl-api-base-url"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Firecrawl API Base URL')}
@@ -1386,13 +1639,17 @@
 				{:else if webConfig.WEB_LOADER_ENGINE === 'tavily'}
 					<div class="mb-2.5 flex w-full flex-col">
 						<div>
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<label
+								for="tavily-extract-depth"
+								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+							>
 								{$i18n.t('settings.admin.web.tavilyExtractDepth.label')}
-							</div>
+							</label>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
+										id="tavily-extract-depth"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Tavily Extract Depth')}
@@ -1421,13 +1678,17 @@
 					<div class="mb-2.5 flex w-full flex-col">
 						{#if !webConfig.ENABLE_WEB_SEARCH || webConfig.WEB_SEARCH_ENGINE !== 'microsoft_web_iq'}
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="web-loader-microsoft-web-iq-api-base-url"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.microsoftWebIqApiBaseUrl.label')}
-								</div>
+								</label>
 
 								<div class="flex w-full">
 									<div class="flex-1">
 										<input
+											id="web-loader-microsoft-web-iq-api-base-url"
 											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Microsoft Web IQ API Base URL')}
@@ -1451,11 +1712,15 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<label
+									for="web-loader-microsoft-web-iq-language"
+									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								>
 									{$i18n.t('settings.admin.web.language.label')}
-								</div>
+								</label>
 
 								<input
+									id="web-loader-microsoft-web-iq-language"
 									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 									type="text"
 									placeholder={$i18n.t('Enter language')}
@@ -1468,13 +1733,17 @@
 				{:else if webConfig.WEB_LOADER_ENGINE === 'external'}
 					<div class="mb-2.5 flex w-full flex-col">
 						<div>
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<label
+								for="external-web-loader-url"
+								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+							>
 								{$i18n.t('settings.admin.web.externalWebLoaderUrl.label')}
-							</div>
+							</label>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
+										id="external-web-loader-url"
 										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter External Web Loader URL')}
@@ -1502,8 +1771,10 @@
 				<AdminSettingField
 					label={$i18n.t('settings.admin.web.concurrentRequests.label')}
 					description={$i18n.t('settings.admin.web.concurrentRequests.description')}
+					forId="web-loader-concurrent-requests"
 				>
 					<input
+						id="web-loader-concurrent-requests"
 						class={inputClass}
 						placeholder={$i18n.t('settings.admin.web.concurrentRequests.label')}
 						bind:value={webConfig.WEB_LOADER_CONCURRENT_REQUESTS}
@@ -1514,8 +1785,10 @@
 				<AdminSettingField
 					label={$i18n.t('settings.admin.web.youtubeLanguage.label')}
 					description={$i18n.t('settings.admin.web.youtubeLanguage.description')}
+					forId="youtube-loader-language"
 				>
 					<input
+						id="youtube-loader-language"
 						class={inputClass}
 						type="text"
 						placeholder={$i18n.t('Enter language codes')}
@@ -1527,8 +1800,10 @@
 				<AdminSettingField
 					label={$i18n.t('settings.admin.web.youtubeProxyUrl.label')}
 					description={$i18n.t('settings.admin.web.youtubeProxyUrl.description')}
+					forId="youtube-loader-proxy-url"
 				>
 					<input
+						id="youtube-loader-proxy-url"
 						class={inputClass}
 						type="text"
 						placeholder={$i18n.t('Enter proxy URL (e.g. https://user:password@host:port)')}
@@ -1540,11 +1815,11 @@
 		{/if}
 	</div>
 	<div class="flex justify-end pt-6 text-sm font-normal">
-		<button
-			class="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-2.5 text-xs font-normal text-white transition hover:bg-black disabled:opacity-60 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
-			type="submit"
-		>
-			{$i18n.t('Save')}
-		</button>
+		<AdminSettingSaveButton
+			settings={webConfig}
+			{savedConfig}
+			labels={settingLabels}
+			{sensitiveKeys}
+		/>
 	</div>
 </form>

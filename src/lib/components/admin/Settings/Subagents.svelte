@@ -1,6 +1,7 @@
 <script lang="ts">
 	import AdminSettingRow from './AdminSettingRow.svelte';
-	import { getContext, onMount } from 'svelte';
+	import AdminSettingSaveButton from './AdminSettingSaveButton.svelte';
+	import { getContext, onMount, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
 	import { config as appConfig } from '$lib/stores';
@@ -15,27 +16,52 @@
 	let saving = false;
 	let enabled = false;
 	let backgroundEnabled = false;
-	let maxConcurrent = 20;
-	let maxAsync = 20;
-	let maxIterations = 30;
-	let maxOutput = 30000;
+	let maxConcurrent: number | null = null;
+	let maxAsync: number | null = null;
+	let maxIterations: number | null = null;
+	let maxOutput: number | null = null;
 	let systemPrompt = '';
+
+	let savedConfig: Record<string, any> | null = null;
+	$: settings = {
+		ENABLE_SUBAGENTS: enabled,
+		SUBAGENTS_BACKGROUND_ENABLED: backgroundEnabled,
+		SUBAGENTS_MAX_CONCURRENT: maxConcurrent,
+		SUBAGENTS_MAX_ASYNC: maxAsync,
+		SUBAGENTS_MAX_ITERATIONS: maxIterations,
+		SUBAGENTS_MAX_OUTPUT: maxOutput,
+		SUBAGENTS_SYSTEM_PROMPT: systemPrompt
+	};
+	$: settingLabels = {
+		ENABLE_SUBAGENTS: $i18n.t('settings.admin.subagents.enableSubAgents.label'),
+		SUBAGENTS_BACKGROUND_ENABLED: $i18n.t(
+			'settings.admin.subagents.enableBackgroundSubAgents.label'
+		),
+		SUBAGENTS_MAX_CONCURRENT: $i18n.t('settings.admin.subagents.maxConcurrent.label'),
+		SUBAGENTS_MAX_ASYNC: $i18n.t('settings.admin.subagents.maxBackground.label'),
+		SUBAGENTS_MAX_ITERATIONS: $i18n.t('settings.admin.subagents.maxIterations.label'),
+		SUBAGENTS_MAX_OUTPUT: $i18n.t('settings.admin.subagents.maxOutput.label'),
+		SUBAGENTS_SYSTEM_PROMPT: $i18n.t('settings.admin.subagents.systemPrompt.label')
+	};
 
 	onMount(async () => {
 		try {
 			const config = await getSubagentsConfig(localStorage.token);
 			enabled = config?.ENABLE_SUBAGENTS ?? false;
 			backgroundEnabled = config?.SUBAGENTS_BACKGROUND_ENABLED ?? false;
-			maxConcurrent = Number(config?.SUBAGENTS_MAX_CONCURRENT) || 20;
-			maxAsync = Number(config?.SUBAGENTS_MAX_ASYNC) || 20;
-			maxIterations = Number(config?.SUBAGENTS_MAX_ITERATIONS) || 30;
-			maxOutput = Number(config?.SUBAGENTS_MAX_OUTPUT) || 30000;
+			maxConcurrent = config?.SUBAGENTS_MAX_CONCURRENT ?? null;
+			maxAsync = config?.SUBAGENTS_MAX_ASYNC ?? null;
+			maxIterations = config?.SUBAGENTS_MAX_ITERATIONS ?? null;
+			maxOutput = config?.SUBAGENTS_MAX_OUTPUT ?? null;
 			systemPrompt = config?.SUBAGENTS_SYSTEM_PROMPT ?? '';
 		} catch (error) {
 			toast.error(`${error}`);
 		} finally {
 			loading = false;
 		}
+
+		await tick();
+		savedConfig = structuredClone(settings);
 	});
 
 	const save = async () => {
@@ -44,12 +70,13 @@
 			await setSubagentsConfig(localStorage.token, {
 				ENABLE_SUBAGENTS: enabled,
 				SUBAGENTS_BACKGROUND_ENABLED: backgroundEnabled,
-				SUBAGENTS_MAX_CONCURRENT: maxConcurrent,
-				SUBAGENTS_MAX_ASYNC: maxAsync,
-				SUBAGENTS_MAX_ITERATIONS: maxIterations,
-				SUBAGENTS_MAX_OUTPUT: maxOutput,
+				SUBAGENTS_MAX_CONCURRENT: maxConcurrent ?? null,
+				SUBAGENTS_MAX_ASYNC: maxAsync ?? null,
+				SUBAGENTS_MAX_ITERATIONS: maxIterations ?? null,
+				SUBAGENTS_MAX_OUTPUT: maxOutput ?? null,
 				SUBAGENTS_SYSTEM_PROMPT: systemPrompt
 			});
+			savedConfig = structuredClone(settings);
 			await appConfig.set(await getBackendConfig());
 			toast.success($i18n.t('Settings saved successfully!'));
 		} catch (error) {
@@ -92,13 +119,21 @@
 								id="sa-concurrent"
 								type="number"
 								bind:value={maxConcurrent}
-								min="-1"
+								min="1"
+								step="1"
+								aria-describedby="sa-concurrent-help"
 								class="h-7 w-16 rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 							/>
 							<span class="text-[0.6875rem] text-gray-400 dark:text-gray-600">
 								{$i18n.t('simultaneous sub-agents')}
 							</span>
 						</div>
+						<p
+							id="sa-concurrent-help"
+							class="mt-1 text-[0.6875rem] text-gray-400 dark:text-gray-600"
+						>
+							{$i18n.t('Leave empty for unlimited')}
+						</p>
 					</div>
 
 					<div>
@@ -123,13 +158,18 @@
 									id="sa-async"
 									type="number"
 									bind:value={maxAsync}
-									min="-1"
+									min="1"
+									step="1"
+									aria-describedby="sa-async-help"
 									class="h-7 w-16 rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 								/>
 								<span class="text-[0.6875rem] text-gray-400 dark:text-gray-600">
 									{$i18n.t('background sub-agents')}
 								</span>
 							</div>
+							<p id="sa-async-help" class="mt-1 text-[0.6875rem] text-gray-400 dark:text-gray-600">
+								{$i18n.t('Leave empty for unlimited')}
+							</p>
 						</div>
 					{/if}
 
@@ -143,13 +183,20 @@
 								type="number"
 								bind:value={maxIterations}
 								min="1"
-								max="100"
+								step="1"
+								aria-describedby="sa-iterations-help"
 								class="h-7 w-16 rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 							/>
 							<span class="text-[0.6875rem] text-gray-400 dark:text-gray-600">
 								{$i18n.t('tool loops per sub-agent')}
 							</span>
 						</div>
+						<p
+							id="sa-iterations-help"
+							class="mt-1 text-[0.6875rem] text-gray-400 dark:text-gray-600"
+						>
+							{$i18n.t('Leave empty for unlimited')}
+						</p>
 					</div>
 
 					<div>
@@ -161,13 +208,16 @@
 								id="sa-output"
 								type="number"
 								bind:value={maxOutput}
-								min="1000"
-								max="100000"
-								step="1000"
+								min="1"
+								step="1"
+								aria-describedby="sa-output-help"
 								class="h-7 w-20 rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
 							/>
 							<span class="text-[0.6875rem] text-gray-400 dark:text-gray-600">chars</span>
 						</div>
+						<p id="sa-output-help" class="mt-1 text-[0.6875rem] text-gray-400 dark:text-gray-600">
+							{$i18n.t('Leave empty for unlimited')}
+						</p>
 					</div>
 
 					<div>
@@ -192,13 +242,7 @@
 
 	{#if !loading}
 		<div class="flex justify-end pt-6 text-sm font-normal">
-			<button
-				class="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-2.5 text-xs font-normal text-white transition hover:bg-black disabled:opacity-60 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
-				type="submit"
-				disabled={saving}
-			>
-				{$i18n.t('Save')}
-			</button>
+			<AdminSettingSaveButton {settings} {savedConfig} labels={settingLabels} disabled={saving} />
 		</div>
 	{/if}
 </form>

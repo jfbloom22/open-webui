@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
+	import equal from 'fast-deep-equal';
 	import { v4 as uuidv4 } from 'uuid';
 	import Sortable from 'sortablejs';
 
 	import { goto } from '$app/navigation';
+	import type { AppLayoutContext } from '$lib/types';
+	import { pageTabKey } from '$lib/components/chat/Tabs/tabs';
 	import { page } from '$app/stores';
 	import {
 		user,
@@ -13,16 +16,14 @@
 		tags,
 		folders as _folders,
 		showSidebar,
-		showControls,
+		showTabs,
 		showSearch,
 		mobile,
 		pinnedChats,
 		pinnedNotes,
-		temporaryChatEnabled,
 		channels,
 		socket,
 		config,
-		isApp,
 		visiblePinnedModels,
 		visibleControls,
 		selectedFolder,
@@ -33,16 +34,27 @@
 		allLoaded,
 		loadNextChatListPage,
 		refreshChatList,
+		refreshFolderChatLists,
 		refreshSidebar,
 		registerFolderRefreshHandler,
 		setAllChatsRead,
 		setChatActive,
 		setChatReadAt
 	} from '$lib/stores/chatList';
+	import {
+		folderStates,
+		markFolderChatsDirty,
+		updateFolderChatLists,
+		updateFolderDetails,
+		removeFolderState
+	} from '$lib/stores/folderStates';
 	import { onMount, getContext, setContext, tick, onDestroy } from 'svelte';
 	import { writable } from 'svelte/store';
 
 	const i18n: any = getContext('i18n');
+	const appLayout = getContext<AppLayoutContext | undefined>('appLayout');
+	// Preserve the former app sidebar label for i18n extraction.
+	// t('App navigation')
 
 	$: canImportChats = $user?.role === 'admin' || ($user?.permissions?.chat?.import ?? true);
 
@@ -69,6 +81,17 @@
 	import { createNoteHandler } from '$lib/components/notes/utils';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
+	import InboxButton from './InboxButton.svelte';
+	import InboxHost from './InboxHost.svelte';
+	import InboxPanel from './InboxPanel.svelte';
+	let inboxHost: InboxHost;
+	let inboxPanel: InboxPanel;
+	$: inboxOpened =
+		$config?.features?.enable_notifications &&
+		!!$page.state.inbox &&
+		$page.state.inboxUserId === $user?.id;
+	import InboxBadge from './InboxBadge.svelte';
+	import { inboxCount } from '$lib/stores/inbox';
 	import UserMenu from './Sidebar/UserMenu.svelte';
 	import ChatItem from './Sidebar/ChatItem.svelte';
 	import Spinner from '../common/Spinner.svelte';
@@ -104,7 +127,6 @@
 	import MoreHorizontalIcon from './Sidebar/icons/MoreHorizontal.svelte';
 	import MobileSwipePanel from '../common/MobileSwipePanel.svelte';
 
-	const BREAKPOINT = 768;
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
 
 	let scrollTop = 0;
@@ -165,6 +187,9 @@
 	$: canDeleteChats = $user?.role === 'admin' || ($user?.permissions?.chat?.delete ?? true);
 	setContext('sidebar-chat-selection', chatSelection);
 
+	// Keeps the selection bar's aria-labels in the i18n catalogs; the parser misses them in the markup.
+	// $i18n.t('Archive selected chats')
+	// $i18n.t('Delete selected chats')
 	const applySelectedChatAction = async (action: 'archive' | 'delete', ids: string[]) => {
 		if ($selectionBusy || ids.length === 0 || (action === 'delete' && !canDeleteChats)) return;
 		selectionBusy.set(true);
@@ -177,6 +202,7 @@
 						id
 					);
 					if (!result) throw new Error('Chat action failed');
+					updateFolderChatLists({ id }, undefined, true);
 					succeeded.add(id);
 				} catch (error) {
 					console.error(`Failed to ${action} chat:`, error);
@@ -217,12 +243,7 @@
 		}
 	};
 
-	// Keep the optimistic sidebar highlight in sync with the active chat. Leaving the
-	// chat view (e.g. navigating to an admin page) clears chatId, and programmatic
-	// navigation such as cloning moves chatId to a different chat — in both cases the
-	// previously-selected item must not stay highlighted. The optimistic on-click
-	// highlight is preserved because a click sets selectedChatId without changing
-	// chatId, so this reactive only re-runs once chatId catches up to the same value.
+	// Follow chatId changes on navigation; preserve the click's optimistic highlight until chatId catches up.
 	$: selectedChatId = $chatId || null;
 
 	let showCreateChannel = false;
@@ -247,14 +268,13 @@
 	let showSharedFolders = false;
 	let showChatsMenu = false;
 
-	let folders = {};
+	let folders: Record<string, any> = {};
 	type SelectedSidebarFolder = { id: string } | null;
 	let folderRegistry: Record<
 		string,
 		{
-			setFolderItems?: () => unknown;
-			upsertChat?: (chat: Record<string, unknown>) => unknown;
-			setChatActive?: (chatId: string, active: boolean) => boolean;
+			setFolderItems?: (append?: boolean, refresh?: boolean) => unknown;
+			setChatActive?: (chatId: string, active: boolean, pendingApproval: boolean) => boolean;
 			setChatReadAt?: (chatId: string, lastReadAt: number) => boolean;
 			setAllChatsRead?: () => unknown;
 		}
@@ -264,12 +284,37 @@
 
 	let sharedFolders: any[] = [];
 
+	let retainedFolderId: string | null = null;
+	$: if ($selectedFolder?.id) {
+		const id = $selectedFolder.id;
+		const details = $folderStates[id]?.details;
+		if (details) {
+			retainedFolderId = id;
+			const display = {
+				name: details.name,
+				meta: details.meta,
+				write_access: details.write_access,
+				access_grants: details.access_grants
+			};
+			const current = {
+				name: $selectedFolder.name,
+				meta: $selectedFolder.meta,
+				write_access: $selectedFolder.write_access,
+				access_grants: $selectedFolder.access_grants
+			};
+			if (!equal(display, current)) selectedFolder.set({ ...$selectedFolder, ...display });
+		} else if (!$folderStates[id] && retainedFolderId === id) {
+			selectedFolder.set(null);
+			if ($page.url.pathname.startsWith('/folders/')) void goto('/');
+		}
+	} else retainedFolderId = null;
+
 	const initSelectedFolderChats = (folder: SelectedSidebarFolder) => {
 		if (!folder?.id) {
 			return;
 		}
 
-		folderRegistry[folder.id]?.setFolderItems?.();
+		folderRegistry[folder.id]?.setFolderItems?.(false, false);
 	};
 
 	$: pinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
@@ -401,7 +446,7 @@
 					? [...folderMap[folder.parent_id].childrenIds, folder.id]
 					: [folder.id];
 
-				// Sort the children by updated_at field
+				// Recently updated folders get the front seats.
 				folderMap[folder.parent_id].childrenIds.sort((a, b) => {
 					return folderMap[b].updated_at - folderMap[a].updated_at;
 				});
@@ -436,10 +481,10 @@
 			return;
 		}
 
-		// Check for duplicate names in the same parent
+		// Check sibling names before adding another folder called "New folder".
 		const siblings = Object.values(folders).filter((folder) => folder.parent_id === parent_id);
 		if (siblings.find((folder) => folder.name.toLowerCase() === name.toLowerCase())) {
-			// If a folder with the same name already exists, append a number to the name
+			// Same name? Issue a numbered sequel.
 			let i = 1;
 			while (
 				siblings.find((folder) => folder.name.toLowerCase() === `${name} ${i}`.toLowerCase())
@@ -491,7 +536,7 @@
 	};
 
 	const initChatList = async () => {
-		// Reset pagination variables
+		// Mark the chat list as loading while tags, pinned notes, and chats refresh.
 		console.log('initChatList');
 		chatListReady = false;
 
@@ -524,13 +569,14 @@
 			$config?.features?.enable_channels &&
 			($user?.role === 'admin' || ($user?.permissions?.features?.channels ?? true))
 		) {
-			await initChannels();
+			initChannels();
 		}
 
 		await initChatList();
 	};
 
 	const refreshChatRows = async () => {
+		markFolderChatsDirty();
 		const result = await refreshChatList(localStorage.token, { refreshPinned: true });
 		if (result.accepted) {
 			await initFolders();
@@ -687,7 +733,12 @@
 	};
 
 	const onKeyDown = (e) => {
-		if (e.key === 'Escape' && $selectedChatIds.size > 0 && !showDeleteSelectedConfirm) {
+		if (
+			e.key === 'Escape' &&
+			!inboxOpened &&
+			$selectedChatIds.size > 0 &&
+			!showDeleteSelectedConfirm
+		) {
 			e.preventDefault();
 			chatSelection.clear();
 		}
@@ -717,6 +768,8 @@
 
 	const MIN_WIDTH = 220;
 	const MAX_WIDTH = 480;
+	let viewportWidth = 320;
+	$: mobileWidth = Math.min(380, Math.max(0, viewportWidth - 40));
 
 	let isResizing = false;
 	let activePointerId: number | null = null;
@@ -762,6 +815,15 @@
 
 		sidebarWidth.set(newSidebarWidth);
 		document.documentElement.style.setProperty('--sidebar-width', `${newSidebarWidth}px`);
+	};
+
+	const resizeKeyHandler = (e: KeyboardEvent) => {
+		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+
+		e.preventDefault();
+		const delta = e.key === 'ArrowLeft' ? -10 : 10;
+		sidebarWidth.set(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, ($sidebarWidth ?? 245) + delta)));
+		localStorage.setItem('sidebarWidth', String($sidebarWidth));
 	};
 
 	onDestroy(() => {
@@ -848,10 +910,6 @@
 			}
 
 			if (folderId) {
-				if (chat) {
-					return folderRegistry[folderId]?.upsertChat?.(chat);
-				}
-
 				return folderRegistry[folderId]?.setFolderItems?.();
 			}
 
@@ -892,6 +950,7 @@
 			type: string;
 			data: {
 				active?: boolean;
+				pending_approval?: boolean;
 				folder_id?: string | null;
 				last_read_at?: number;
 				folder_unread_counts?: Record<string, number>;
@@ -899,12 +958,22 @@
 		};
 	}) => {
 		if (event.data?.type === 'chat:active') {
+			updateFolderChatLists({
+				id: event.chat_id,
+				active: event.data.data?.active ?? false,
+				pending_approval: event.data.data?.pending_approval ?? false
+			});
 			const eventData = event.data.data ?? {};
+			if (eventData.folder_unread_counts) {
+				applyFolderUnreadCounts(eventData.folder_unread_counts);
+			}
 			const active = eventData.active ?? false;
-			const found = setChatActive(event.chat_id, active);
+			const pendingApproval = eventData.pending_approval ?? false;
+			const found = setChatActive(event.chat_id, active, pendingApproval);
 			let foundInFolder = false;
 			for (const folder of Object.values(folderRegistry)) {
-				foundInFolder = folder?.setChatActive?.(event.chat_id, active) || foundInFolder;
+				foundInFolder =
+					folder?.setChatActive?.(event.chat_id, active, pendingApproval) || foundInFolder;
 			}
 			if (!foundInFolder && active && eventData.folder_id) {
 				await folderRegistry[eventData.folder_id]?.setFolderItems?.();
@@ -913,6 +982,8 @@
 				await refreshChatRows();
 			}
 		} else if (event.data?.type === 'chat:list') {
+			if (typeof event.data.data?.last_read_at === 'number')
+				updateFolderChatLists({ id: event.chat_id, last_read_at: event.data.data.last_read_at });
 			const eventData = event.data.data ?? {};
 			const folderUnreadCounts = eventData.folder_unread_counts;
 			if (folderUnreadCounts) {
@@ -934,16 +1005,63 @@
 		}
 	};
 
-	const newChatHandler = async () => {
+	const openSidebarPage = (href: string, label = '') => {
+		const url = new URL(href, location.origin);
+		if (!appLayout?.openPageTab || url.origin !== location.origin || !pageTabKey(url)) return false;
+		appLayout.openPageTab({ href: url.pathname + url.search + url.hash, label });
+		closeMobileSidebar();
+		return true;
+	};
+	const sidebarLinkClickHandler = (event: MouseEvent) => {
+		if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+			return;
+		const link = (event.target as Element)?.closest<HTMLAnchorElement>('#sidebar a[href]');
+		if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+		if (link.closest('#sidebar-chat-item')?.querySelector('[role="checkbox"]')) return;
+		if (link.pathname.startsWith('/c/') && link.pathname !== `/c/${$chatId}`) return;
+		if (link.pathname === '/' && !link.search) return;
+		if (openSidebarPage(link.href, link.getAttribute('aria-label') || link.textContent?.trim())) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+		}
+	};
+
+	const sidebarPageDragHandler = (event: DragEvent) => {
+		if (!(event.target instanceof Element) || !event.dataTransfer) return;
+		const link =
+			event.target.closest<HTMLAnchorElement>('#sidebar a[href]') ??
+			(event.target.closest('#sidebar')
+				? event.target.querySelector<HTMLAnchorElement>('a[href]')
+				: null);
+		if (!link) return;
+		const url = new URL(link.href);
+		if (
+			url.origin !== location.origin ||
+			!pageTabKey(url) ||
+			url.pathname.startsWith('/c/') ||
+			(url.pathname === '/' && !url.search)
+		)
+			return;
+		const item = {
+			type: 'page',
+			href: url.pathname + url.search + url.hash,
+			label: link.getAttribute('aria-label') || link.textContent?.trim() || ''
+		};
+		event.dataTransfer.setData('application/x-open-webui-page', JSON.stringify(item));
+		event.dataTransfer.setData('application/x-open-webui-drag', '');
+		event.dataTransfer.setData('text/plain', JSON.stringify(item));
+		event.dataTransfer.effectAllowed = 'copyMove';
+	};
+
+	const newChatHandler = async (event?: MouseEvent) => {
+		if (event && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
+		event?.preventDefault();
 		selectedChatId = null;
 		selectedFolder.set(null);
 		closeMobileSidebar();
 
-		if ($user?.role !== 'admin' && $user?.permissions?.chat?.temporary_enforced) {
-			await temporaryChatEnabled.set(true);
-		} else {
-			await temporaryChatEnabled.set(false);
-		}
+		if (appLayout?.initNewChat) await appLayout.initNewChat({ preserveTabs: true });
+		else await goto('/');
 	};
 
 	const itemClickHandler = async () => {
@@ -1000,20 +1118,26 @@
 			await initChannels();
 			showCreateChannel = false;
 			showChannels = true;
-			goto(`/channels/${res.id}`);
+			if (!openSidebarPage(`/channels/${res.id}`, res.name)) goto(`/channels/${res.id}`);
 		}
 	}}
 />
 
-<FolderModal
-	bind:show={showCreateFolderModal}
-	onSubmit={async (folder) => {
-		await createFolder(folder);
-		showCreateFolderModal = false;
-	}}
-/>
+{#if $config?.features?.enable_folders && ($user?.role === 'admin' || ($user?.permissions?.features?.folders ?? true))}
+	<FolderModal
+		bind:show={showCreateFolderModal}
+		onSubmit={async (folder) => {
+			await createFolder(folder);
+			showCreateFolderModal = false;
+		}}
+	/>
+{/if}
+
+<svelte:document on:click|capture={sidebarLinkClickHandler} />
 
 <svelte:window
+	on:dragstart|capture={sidebarPageDragHandler}
+	bind:innerWidth={viewportWidth}
 	on:pointermove={(e) => {
 		if (!isResizing) return;
 		if (activePointerId !== null && e.pointerId !== activePointerId) return;
@@ -1023,11 +1147,15 @@
 	on:pointercancel={resizeEndHandler}
 />
 
+{#if $config?.features?.enable_notifications}
+	{#key $user?.id}<InboxHost bind:this={inboxHost} panel={inboxPanel} />{/key}
+{/if}
+
 <MobileSwipePanel
 	open={$showSidebar}
 	enabled={$mobile}
-	blocked={$showControls}
-	width={$sidebarWidth}
+	blocked={!!$showTabs}
+	width={$mobile ? mobileWidth : $sidebarWidth}
 	onOpenChange={(open) => showSidebar.set(open)}
 	let:visible
 	let:progress
@@ -1038,9 +1166,7 @@
 
 	{#if visible}
 		<div
-			class=" {$isApp
-				? ' ml-[4.5rem] md:ml-0'
-				: ''} fixed md:hidden z-40 top-0 right-0 left-0 bottom-0 bg-black w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain {progress >
+			class="fixed md:hidden z-40 top-0 right-0 left-0 bottom-0 bg-black w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain {progress >
 			0.02
 				? ''
 				: 'pointer-events-none'}"
@@ -1064,17 +1190,16 @@
 		id="sidebar-new-chat-button"
 		class="hidden"
 		on:click={() => {
-			goto('/');
 			newChatHandler();
 		}}
 	/>
 
 	{#if !$mobile && !$showSidebar}
 		<div
-			class="w-[calc(42px*var(--app-text-scale,1))] shrink-0 py-[calc(0.25rem*var(--app-text-scale,1))] px-[calc(0.25rem*var(--app-text-scale,1))] flex flex-col justify-between text-gray-700 dark:text-gray-300 hover:bg-gray-50/30 dark:hover:bg-gray-800/30 h-full z-10 transition-all border-e-[0.5px] border-gray-50 dark:border-gray-850/30"
+			class="w-[calc(42px*var(--app-text-scale,1))] shrink-0 pt-0.5 pb-1 px-1 flex flex-col justify-between text-gray-700 dark:text-gray-300 hover:bg-gray-50/30 dark:hover:bg-gray-800/30 h-full z-10 transition-all border-e-[0.5px] border-gray-50 dark:border-gray-850/30"
 			id="sidebar"
 			role="navigation"
-			aria-label={$i18n.t('Chat history')}
+			aria-label={$i18n.t(inboxOpened ? 'Notifications' : 'Chat history')}
 		>
 			<div
 				class="flex flex-col flex-1 {isWindows ? 'cursor-pointer' : 'cursor-[e-resize]'}"
@@ -1085,20 +1210,21 @@
 					closeSidebarButton?.focus();
 				}}
 			>
-				<div class="pb-1">
+				<div class="pb-0.5">
 					<Tooltip
 						content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
 						placement="right"
 					>
 						<button
 							bind:this={openSidebarButton}
-							class="flex size-8.5 items-center justify-center transition group {isWindows
+							id="sidebar-open-button"
+							class="flex size-8.5 shrink-0 items-center justify-center transition group {isWindows
 								? 'cursor-pointer'
 								: 'cursor-[e-resize]'}"
-							aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
+							aria-label={`${$i18n.t('Open Sidebar')}${$config?.features?.enable_notifications && $inboxCount ? ` · ${$i18n.t('Notifications')} (${$inboxCount})` : ''}`}
 						>
 							<div
-								class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900"
+								class="self-center relative flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900"
 							>
 								<!-- LICENSE covers this Open WebUI sidebar logo.
 							Do not alter, remove, obscure, or replace it except as LICENSE permits:
@@ -1110,6 +1236,7 @@
 								/>
 
 								<Sidebar className="size-4 hidden group-hover:flex" />
+								<InboxBadge className="-top-0.5 -translate-x-0.5 text-[0.5625rem]" />
 							</div>
 						</button>
 					</Tooltip>
@@ -1126,7 +1253,6 @@
 									e.stopImmediatePropagation();
 									e.preventDefault();
 
-									goto('/');
 									newChatHandler();
 								}}
 								aria-label={$i18n.t('New Chat')}
@@ -1176,7 +1302,7 @@
 											goto(meta.href);
 											itemClickHandler();
 										}}
-										draggable="false"
+										draggable="true"
 										aria-label={$i18n.t(meta.label)}
 									>
 										<div
@@ -1263,14 +1389,10 @@
 				? visible
 					? 'bg-gray-50 dark:bg-gray-950 z-50'
 					: 'bg-transparent z-0 pointer-events-none'
-				: `bg-gray-50 dark:bg-gray-950 z-50 ${$showSidebar ? '' : 'pointer-events-none'}`} {$isApp
-				? `ml-[4.5rem] md:ml-0 `
-				: $mobile
-					? ''
-					: ''} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden
+				: `bg-gray-50 dark:bg-gray-950 z-50 ${$showSidebar ? '' : 'pointer-events-none'}`} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden
         "
 			style={$mobile
-				? panelStyle
+				? `${panelStyle} --sidebar-width: ${mobileWidth}px;`
 				: `width: ${$showSidebar ? 'var(--sidebar-width)' : '0'}; transition: width 250ms cubic-bezier(0.22, 1, 0.36, 1);`}
 			data-state={$showSidebar}
 		>
@@ -1278,10 +1400,14 @@
 				class=" my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50 border-e border-gray-50 dark:border-gray-850/30"
 			>
 				<div
-					class="sidebar px-1 pt-1.5 pb-1 flex justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10 -mb-2"
+					class="sidebar {$mobile
+						? 'px-0.75 pt-1 pb-1 -mb-2'
+						: 'px-1 pt-0.5 pb-0.5'} flex shrink-0 justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10"
 				>
 					<a
-						class="flex items-center rounded-xl size-8.5 h-full justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region"
+						class="flex items-center rounded-xl size-8.5 {$mobile
+							? 'h-full'
+							: 'shrink-0'} justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region"
 						href="/"
 						draggable="false"
 						aria-label={$i18n.t('New Chat')}
@@ -1298,48 +1424,67 @@
 						/>
 					</a>
 
-					<a href="/" class="flex flex-1 px-0.5" on:click={newChatHandler}>
+					<a href="/" class="flex min-w-0 flex-1 px-0.5" on:click={newChatHandler}>
 						<!-- LICENSE covers this Open WebUI sidebar name.
 					Do not alter, remove, obscure, or replace it except as LICENSE permits:
 					https://docs.openwebui.com/license. -->
 						<div
 							id="sidebar-webui-name"
-							class=" self-center font-normal text-gray-700 dark:text-gray-200"
+							class=" self-center truncate font-normal text-gray-700 dark:text-gray-200"
 						>
 							{$WEBUI_NAME}
 						</div>
 					</a>
-					<Tooltip
-						content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
-						placement="bottom"
-					>
-						<button
-							bind:this={closeSidebarButton}
-							class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition {isWindows
-								? 'cursor-pointer'
-								: 'cursor-[w-resize]'}"
-							on:click={async () => {
-								showSidebar.set(!$showSidebar);
-								await tick();
-								openSidebarButton?.focus();
-							}}
-							aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
+					<div class="flex shrink-0 items-center gap-px">
+						{#if $config?.features?.enable_notifications}<InboxButton
+								onClose={() => inboxHost.close()}
+							/>{/if}
+						<Tooltip
+							content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
+							placement="bottom"
 						>
-							<div class=" self-center">
-								<Sidebar className="size-4" />
-							</div>
-						</button>
-					</Tooltip>
+							<button
+								bind:this={closeSidebarButton}
+								class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition {isWindows
+									? 'cursor-pointer'
+									: 'cursor-[w-resize]'}"
+								on:click={async () => {
+									showSidebar.set(!$showSidebar);
+									await tick();
+									openSidebarButton?.focus();
+								}}
+								aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
+							>
+								<div class=" self-center">
+									<Sidebar className="size-4" />
+								</div>
+							</button>
+						</Tooltip>
+					</div>
 
 					<div
-						class="{scrollTop > 0
+						class="{!inboxOpened && scrollTop > 0
 							? 'visible'
 							: 'invisible'} sidebar-bg-gradient-to-b bg-linear-to-b from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mb-6"
 					></div>
 				</div>
 
+				{#if $config?.features?.enable_notifications}
+					{#key $user?.id}
+						<InboxPanel
+							bind:this={inboxPanel}
+							active={inboxOpened}
+							onClose={() => void inboxHost.close()}
+							onSelect={(item) => inboxHost.select(item)}
+						/>
+					{/key}
+				{/if}
+
 				<div
-					class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 pt-2.5 pb-2.5"
+					class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 {$mobile
+						? 'pt-1.5'
+						: ''} pb-2.5"
+					style:display={inboxOpened ? 'none' : undefined}
 					on:scroll={(e) => {
 						if (e.target.scrollTop === 0) {
 							scrollTop = 0;
@@ -1359,7 +1504,7 @@
 								aria-label={$i18n.t('New Chat')}
 							>
 								<div class="self-center flex size-4 shrink-0 items-center justify-center">
-									<EditPencilIcon className=" size-4" strokeWidth="1.5" />
+									<EditPencilIcon className="size-4" strokeWidth="1.5" />
 								</div>
 
 								<div class="flex flex-1 self-center translate-y-[0.5px]">
@@ -1409,7 +1554,7 @@
 												: 'hover:bg-gray-100 dark:hover:bg-gray-900'}"
 											href={meta.href}
 											on:click={itemClickHandler}
-											draggable="false"
+											draggable="true"
 											aria-label={$i18n.t(meta.label)}
 										>
 											<div class="self-center flex size-4 shrink-0 items-center justify-center">
@@ -1458,7 +1603,7 @@
 							onAdd={async () => {
 								const note = await createNoteHandler('New Note');
 								if (note) {
-									goto(`/notes/${note.id}`);
+									if (!openSidebarPage(`/notes/${note.id}`, note.title)) goto(`/notes/${note.id}`);
 								}
 							}}
 							onAddLabel={$i18n.t('New Note')}
@@ -1525,6 +1670,7 @@
 									);
 
 									if (res) {
+										updateFolderDetails(id, res);
 										await initFolders();
 									}
 								}
@@ -1536,6 +1682,12 @@
 								{shiftKey}
 								onFolderUnreadCounts={applyFolderUnreadCounts}
 								onDelete={(folderId) => {
+									for (const childId of Object.keys(folders)) {
+										let parentId = childId;
+										while (parentId && parentId !== folderId)
+											parentId = folders[parentId]?.parent_id;
+										if (parentId) removeFolderState(childId);
+									}
 									let id = $selectedFolder?.id;
 									while (id && id !== folderId) id = folders[id]?.parent_id;
 									if (id) selectedFolder.set(null);
@@ -1608,6 +1760,7 @@
 										folderRegistry[chat.folder_id]?.setFolderItems();
 
 										if (res) {
+											updateFolderChatLists(res, null);
 											chat = res;
 										}
 									}
@@ -1616,7 +1769,8 @@
 										const res = await toggleChatPinnedStatusById(localStorage.token, chat.id);
 									}
 
-									initChatList();
+									await initChatList();
+									void refreshFolderChatLists();
 								}
 							} else if (type === 'folder') {
 								if (folders[id].parent_id === null) {
@@ -1709,6 +1863,7 @@
 														});
 
 														if (res) {
+															updateFolderChatLists(res, null);
 															chat = res;
 														}
 													}
@@ -1720,7 +1875,8 @@
 														);
 													}
 
-													initChatList();
+													await initChatList();
+													void refreshFolderChatLists();
 												}
 											}
 										}}
@@ -1740,6 +1896,7 @@
 														updatedAt={chat.updated_at}
 														lastReadAt={chat.last_read_at}
 														active={chat.active ?? false}
+														pendingApproval={chat.pending_approval ?? false}
 														{shiftKey}
 														selected={selectedChatId === chat.id}
 														on:select={() => {
@@ -1808,6 +1965,7 @@
 													updatedAt={chat.updated_at}
 													lastReadAt={chat.last_read_at}
 													active={chat.active ?? false}
+													pendingApproval={chat.pending_approval ?? false}
 													{shiftKey}
 													selected={selectedChatId === chat.id}
 													on:select={() => {
@@ -1859,7 +2017,7 @@
 				</div>
 
 				<div class="px-1 pt-1 pb-1.5 sticky bottom-0 z-10 -mt-2 sidebar">
-					{#if $selectedChatIds.size > 0}
+					{#if !inboxOpened && $selectedChatIds.size > 0}
 						<div
 							class="flex items-center justify-between gap-1 px-2 py-0.5 text-[0.6875rem] text-gray-500 dark:text-gray-400"
 							aria-busy={$selectionBusy}
@@ -1901,7 +2059,7 @@
 									<button
 										type="button"
 										disabled={$selectionBusy}
-										class="flex size-6 items-center justify-center rounded-md hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-900 dark:hover:text-gray-100 disabled:opacity-40"
+										class="flex h-6 items-center justify-center rounded-md hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-40 text-gray-500 dark:text-gray-400 px-0"
 										aria-label={$i18n.t('Clear selection')}
 										on:click={chatSelection.clear}
 									>
@@ -1959,7 +2117,14 @@
 				class="relative flex items-center justify-center group border-r border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20 bg-transparent p-0 appearance-none"
 				id="sidebar-resizer"
 				on:pointerdown={resizeStartHandler}
+				on:keydown={resizeKeyHandler}
 				role="separator"
+				tabindex="0"
+				aria-label={$i18n.t('Resize panel')}
+				aria-orientation="vertical"
+				aria-valuenow={$sidebarWidth}
+				aria-valuemin={MIN_WIDTH}
+				aria-valuemax={MAX_WIDTH}
 			>
 				<div
 					class=" absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"

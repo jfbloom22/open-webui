@@ -1,16 +1,10 @@
 <script lang="ts">
+	import { resolveTerminalTarget, type TerminalTarget } from '$lib/apis/terminal';
 	import Fuse from 'fuse.js';
 	import { getContext, onDestroy, onMount, tick } from 'svelte';
+	import type { Readable } from 'svelte/store';
 
-	import {
-		chatId as activeChatId,
-		folders,
-		models,
-		selectedTerminalId,
-		settings,
-		terminalServers,
-		user
-	} from '$lib/stores';
+	import { folders, settings, terminalServers, user } from '$lib/stores';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { getFolders } from '$lib/apis/folders';
 	import { searchKnowledgeBases, searchKnowledgeFiles } from '$lib/apis/knowledge';
@@ -29,16 +23,22 @@
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
 	import Youtube from '$lib/components/icons/Youtube.svelte';
 	import { toast } from 'svelte-sonner';
+	import { getChatContext } from '$lib/components/chat/context';
+
+	const { chatId: activeChatId, models, temporary } = getChatContext();
 
 	const i18n = getContext<any>('i18n');
 
 	export let query = '';
+	export let selectedTerminalId: Readable<string | null>;
+	export let modelId: string | null = null;
 	export let onSelect: (e: any) => void = () => {};
 	export let fileUploadEnabled: boolean = true;
 
 	let selectedIdx = 0;
 	export let filteredItems: any[] = [];
 	let searchDebounceTimer: ReturnType<typeof setTimeout>;
+	let searchController: AbortController;
 
 	let filesystemItems: any[] = [];
 	let knowledgeItems: any[] = [];
@@ -89,25 +89,37 @@
 
 	$: selectedIdx = Math.min(selectedIdx, Math.max(filteredItems.length - 1, 0));
 
-	$: if (query !== undefined) {
+	const handleSearchInput = () => {
+		searchController?.abort();
+		knowledgeItems = [];
+		fileItems = [];
+		filesystemItems = [];
 		clearTimeout(searchDebounceTimer);
 		searchDebounceTimer = setTimeout(() => {
 			getItems();
 		}, 200);
+	};
+
+	$: if (query !== undefined) {
+		handleSearchInput();
 	}
 
 	onDestroy(() => {
+		searchController?.abort();
 		clearTimeout(searchDebounceTimer);
 	});
 
 	const getItems = () => {
+		searchController?.abort();
+		searchController = new AbortController();
+		const { signal } = searchController;
 		const terminal = getSelectedTerminal();
-		getFilesystemItems(terminal);
-		getKnowledgeItems();
-		getKnowledgeFileItems();
+		getFilesystemItems(terminal, signal);
+		getKnowledgeItems(signal);
+		getKnowledgeFileItems(signal);
 	};
 
-	const getFilesystemItems = async (terminal = getSelectedTerminal()) => {
+	const getFilesystemItems = async (terminal: TerminalTarget | null, signal: AbortSignal) => {
 		if (!terminal) {
 			filesystemItems = [];
 			return;
@@ -116,16 +128,16 @@
 		const terminalId = $selectedTerminalId;
 		const sessionId = $activeChatId;
 		const res = await searchFiles(
-			terminal.url,
-			terminal.key,
+			terminal,
 			query,
 			'.',
 			20,
 			'any',
-			sessionId || undefined,
-			localStorage.getItem('fileNav:showHidden') === 'true'
+			localStorage.getItem('fileNav:showHidden') === 'true',
+			signal
 		).catch(() => null);
 
+		if (signal.aborted) return;
 		if (terminalId !== $selectedTerminalId || sessionId !== $activeChatId) return;
 		filesystemItems = (res?.results ?? []).map((item: any) => ({
 			...filesystemFile(item, terminalId!, sessionId || null),
@@ -134,30 +146,20 @@
 		}));
 	};
 
-	const chatContext = (terminal: any) => terminal?.contexts?.chat ?? {};
-
-	const getSelectedTerminal = (): { url: string; key: string } | null => {
-		if (!$selectedTerminalId) return null;
-
-		const systemTerminal = ($terminalServers ?? []).find(
-			(t) => t.id && t.id === $selectedTerminalId
+	const getSelectedTerminal = (): TerminalTarget | null => {
+		const target = resolveTerminalTarget(
+			$selectedTerminalId,
+			$terminalServers ?? [],
+			localStorage.token,
+			{ chatId: $activeChatId || null, modelId: modelId }
 		);
-		const systemChatContext = chatContext(systemTerminal);
-		if (systemTerminal) {
-			if (
-				systemChatContext === false ||
-				(isTemporaryChatId($activeChatId) && systemChatContext?.context_id === 'chat_id')
-			) {
-				return null;
-			}
-
-			return { url: systemTerminal.url, key: localStorage.token };
-		}
-
-		const directTerminal = ($settings?.terminalServers ?? []).find(
-			(t: any) => t.url === $selectedTerminalId && t.enabled
-		);
-		return directTerminal?.url ? { url: directTerminal.url, key: directTerminal.key ?? '' } : null;
+		if (
+			($terminalServers ?? []).find((server) => server.id === $selectedTerminalId)?.scope ===
+				'chat' &&
+			($temporary || isTemporaryChatId($activeChatId))
+		)
+			return null;
+		return target;
 	};
 
 	$: folderItems = (($folders ?? []) as any[])
@@ -169,10 +171,19 @@
 		}))
 		.filter((folder: any) => folder.name.toLowerCase().includes(query.toLowerCase()));
 
-	const getKnowledgeItems = async () => {
-		const res = await searchKnowledgeBases(localStorage.token, query).catch(() => null);
+	const getKnowledgeItems = async (signal: AbortSignal) => {
+		const res = await searchKnowledgeBases(
+			localStorage.token,
+			query,
+			null,
+			null,
+			null,
+			null,
+			null,
+			signal
+		).catch(() => null);
 
-		if (res) {
+		if (res && !signal.aborted) {
 			knowledgeItems = res.items.map((item: any) => ({
 				...item,
 				type: 'collection'
@@ -180,10 +191,19 @@
 		}
 	};
 
-	const getKnowledgeFileItems = async () => {
-		const res = await searchKnowledgeFiles(localStorage.token, query).catch(() => null);
+	const getKnowledgeFileItems = async (signal: AbortSignal) => {
+		const res = await searchKnowledgeFiles(
+			localStorage.token,
+			query,
+			null,
+			null,
+			null,
+			1,
+			false,
+			signal
+		).catch(() => null);
 
-		if (res) {
+		if (res && !signal.aborted) {
 			fileItems = res.items.map((item: any) => ({
 				...item,
 				type: 'file',
@@ -245,11 +265,11 @@
 	{#each knowledgeResults as item, idx}
 		{@const itemIdx = idx}
 		{#if idx === 0 || item?.type !== knowledgeResults[idx - 1]?.type}
-			<div class="px-2 py-1 text-[0.6875rem] text-gray-500 dark:text-gray-400">
+			<div class="app-muted mb-0.5 px-2 pt-1 pb-0.5 text-[0.625rem] leading-none">
 				{#if item?.type === 'folder'}
 					{$i18n.t('Folders')}
 				{:else if item?.type === 'collection'}
-					{$i18n.t('Collections')}
+					{$i18n.t('Knowledge')}
 				{:else if item?.type === 'file'}
 					{$i18n.t('Files')}
 				{:else if item?.type === 'filesystem'}
@@ -259,9 +279,9 @@
 		{/if}
 
 		<button
-			class="flex h-[1.6875rem] w-full max-w-full items-center justify-between overflow-hidden rounded-xl px-2 text-left text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 {itemIdx ===
+			class="flex h-6 w-full max-w-full items-center justify-between overflow-hidden rounded-xl px-2 text-left text-[0.8125rem] transition-colors duration-75 hover:bg-gray-50/40 dark:hover:bg-gray-800/40 {itemIdx ===
 			selectedIdx
-				? 'bg-gray-50/40 dark:bg-gray-800/40 dark:text-gray-100 selected-command-option-button'
+				? 'app-interactive-active selected-command-option-button'
 				: ''}"
 			type="button"
 			on:click={() => {
@@ -272,11 +292,9 @@
 			}}
 			data-selected={itemIdx === selectedIdx}
 		>
-			<div
-				class="flex w-full min-w-0 items-center gap-1.5 overflow-hidden text-black dark:text-gray-100"
-			>
+			<div class="flex w-full min-w-0 items-center gap-2 overflow-hidden">
 				<Tooltip
-					className="shrink-0 flex"
+					className="app-icon-muted flex w-4 shrink-0 items-center justify-center"
 					content={item?.legacy
 						? $i18n.t('Legacy')
 						: item?.type === 'filesystem'
@@ -284,7 +302,7 @@
 							: item?.type === 'file'
 								? `${item?.collection?.name} > ${$i18n.t('File')}`
 								: item?.type === 'collection'
-									? $i18n.t('Collection')
+									? $i18n.t('Knowledge Base')
 									: item?.type === 'youtube'
 										? $i18n.t('YouTube')
 										: item?.type === 'web'
@@ -320,7 +338,7 @@
 {/if}
 
 {#if filteredModels.length > 0}
-	<div class="px-2 py-1 text-[0.6875rem] text-gray-500 dark:text-gray-400">
+	<div class="app-muted mb-0.5 px-2 pt-1 pb-0.5 text-[0.625rem] leading-none">
 		{$i18n.t('Models')}
 	</div>
 
@@ -328,9 +346,9 @@
 		{@const itemIdx = knowledgeResults.length + modelIdx}
 		<Tooltip content={model.id} placement="top-start">
 			<button
-				class="flex h-[1.6875rem] w-full items-center rounded-xl px-2 text-left text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 {itemIdx ===
+				class="flex h-6 w-full items-center rounded-xl px-2 text-left text-[0.8125rem] transition-colors duration-75 hover:bg-gray-50/40 dark:hover:bg-gray-800/40 {itemIdx ===
 				selectedIdx
-					? 'bg-gray-50/40 dark:bg-gray-800/40 selected-command-option-button'
+					? 'app-interactive-active selected-command-option-button'
 					: ''}"
 				type="button"
 				on:click={() => {
@@ -342,11 +360,11 @@
 				on:focus={() => {}}
 				data-selected={itemIdx === selectedIdx}
 			>
-				<div class="flex min-w-0 items-center text-black dark:text-gray-100">
+				<div class="flex min-w-0 items-center gap-2">
 					<img
 						src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model.id}&lang=${$i18n.language}`}
 						alt={resolveLocalizedModelName(model, $i18n.language) ?? model.id}
-						class="mr-2 size-4.5 rounded-full object-cover"
+						class="size-4 shrink-0 rounded-full object-cover"
 						on:error={(e) => {
 							// LICENSE covers this Open WebUI fallback logo.
 							// Do not alter, remove, obscure, or replace it except as LICENSE permits:

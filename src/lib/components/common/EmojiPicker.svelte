@@ -22,7 +22,7 @@
 	export let side = 'top';
 	export let align = 'start';
 	export let user = null;
-	export let selected = null;
+	export let selected: string | null = null;
 
 	const MAX_RECENT = 30;
 
@@ -175,6 +175,7 @@
 					type="text"
 					class="min-w-0 flex-1 text-[0.8125rem] bg-transparent outline-hidden"
 					placeholder={$i18n.t('Search all emojis')}
+					aria-label={$i18n.t('Search all emojis')}
 					bind:value={search}
 				/>
 			</div>

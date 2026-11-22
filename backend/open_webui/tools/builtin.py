@@ -33,9 +33,13 @@ from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
 from open_webui.routers.images import (
     CreateImageForm,
     EditImageForm,
+    get_image_data_url,
     image_edits,
     image_generations,
 )
+from open_webui.routers.videos import CreateVideoForm, video_generations
+from open_webui.utils.images.connections import get_requested_image_model
+from open_webui.utils.videos.connections import get_requested_video_model
 from open_webui.routers.memories import (
     AddMemoryForm,
     ListMemoryPathsForm,
@@ -62,6 +66,7 @@ from open_webui.routers.memories import (
 )
 from open_webui.routers.retrieval import search_web as _search_web
 from open_webui.socket.main import close_changed_note_documents, sio
+from open_webui.tools.visualizations import render_visualization  # noqa: F401 — re-exported
 from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
 from open_webui.utils.access_control.files import has_access_to_note_files
 from open_webui.utils.chat_id import is_saved_chat_id
@@ -69,7 +74,7 @@ from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.notifications import notify_target
 from open_webui.utils.sanitize import sanitize_code
 from open_webui.utils.skill_files import SkillFile, SkillFileOperation, skill_content_page, skill_overview
-from open_webui.utils.terminals import upload_files_to_terminal
+from open_webui.utils.terminals import get_terminal_file, upload_files_to_terminal
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +98,7 @@ async def _has_write_access_to_note(note, user_id: str) -> bool:
 
 
 async def _emit_note_updated(request: Request, user: dict, note) -> None:
-    await sio.emit('events:note', note.model_dump(), to=f'note:{note.id}')
+    await sio.emit('events', {'data': {'type': 'note:updated', 'data': note.model_dump()}}, to=f'note:{note.id}')
     await publish_event(
         request,
         EVENTS.NOTE_UPDATED,
@@ -124,9 +129,7 @@ async def _has_read_access_to_file(
     )
 
 
-# =============================================================================
-# TIME UTILITIES
-# =============================================================================
+# Time utilities
 
 
 async def notify(
@@ -226,7 +229,7 @@ async def calculate_timestamp(
         total_days = days_ago + (weeks_ago * 7)
         adjusted = now - datetime.timedelta(days=total_days)
 
-        # Handle months and years separately (variable length)
+        # Months and years need calendar arithmetic; February refuses to be 30 days.
         if months_ago > 0 or years_ago > 0:
             adjusted = adjusted - relativedelta(months=months_ago, years=years_ago)
 
@@ -287,9 +290,7 @@ async def calculate_timestamp(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# WEB SEARCH TOOLS
-# =============================================================================
+# Web search tools
 
 
 async def search_web(
@@ -363,9 +364,7 @@ async def fetch_url(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# IMAGE GENERATION TOOLS
-# =============================================================================
+# Image generation tools
 
 
 async def generate_image(
@@ -395,7 +394,7 @@ async def generate_image(
 
         images = await image_generations(
             request=__request__,
-            form_data=CreateImageForm(prompt=prompt, size=size),
+            form_data=CreateImageForm(prompt=prompt, size=size, model=get_requested_image_model(__metadata__)),
             metadata=(
                 {'channel_id': __chat_id__.removeprefix('channel:'), 'message_id': __message_id__}
                 if isinstance(__chat_id__, str) and __chat_id__.startswith('channel:')
@@ -467,7 +466,7 @@ async def edit_image(
     Supports targeted edits such as adding, removing, replacing, inpainting, extending, or compositing image content.
 
     :param prompt: A description of the transformation to apply to the provided images
-    :param image_urls: Source image URLs to modify or use as composition inputs
+    :param image_urls: Source image URLs or absolute file paths to modify or use as composition inputs
     :param size: Optional output size in WIDTHxHEIGHT pixels (e.g. "1536x1024"), supported by the configured image model.
         Omit to use the configured default.
     :return: Image URLs and, when a terminal is selected, terminal_path for display_file or further processing.
@@ -478,9 +477,17 @@ async def edit_image(
     try:
         user = UserModel(**__user__) if __user__ else None
 
+        resolved_images = []
+        for url in image_urls:
+            if url.startswith('/') and not url.startswith('/api/v1/files/'):
+                data = await get_terminal_file(__request__, user, __metadata__ or {}, url, max_bytes=50 * 1024 * 1024)
+                url = await asyncio.to_thread(get_image_data_url, data)
+            resolved_images.append(url)
         images = await image_edits(
             request=__request__,
-            form_data=EditImageForm(prompt=prompt, image=image_urls, size=size),
+            form_data=EditImageForm(
+                prompt=prompt, image=resolved_images, size=size, model=get_requested_image_model(__metadata__)
+            ),
             metadata=(
                 {'channel_id': __chat_id__.removeprefix('channel:'), 'message_id': __message_id__}
                 if isinstance(__chat_id__, str) and __chat_id__.startswith('channel:')
@@ -535,9 +542,107 @@ async def edit_image(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# USER INPUT TOOLS
-# =============================================================================
+# Video generation tools
+
+
+async def generate_video(
+    prompt: str,
+    seconds: Optional[int] = None,
+    size: Optional[str] = None,
+    image_url: Optional[str] = None,
+    __request__: Request = None,
+    __user__: dict = None,
+    __event_emitter__: callable = None,
+    __chat_id__: str = None,
+    __message_id__: str = None,
+    __metadata__: dict = None,
+    __event_call__: callable = None,
+) -> str:
+    """
+    Generate a video based on a text prompt.
+
+    :param prompt: A detailed description of the video to generate
+    :param seconds: Optional length in seconds (e.g. 8), supported by the configured video model.
+        Omit to use the configured default.
+    :param size: Optional output size in WIDTHxHEIGHT pixels (e.g. "1280x720"), supported by the configured video model.
+        Omit to use the configured default.
+    :param image_url: Optional image to start the video from, as a URL from the conversation or a terminal path.
+    :return: Video URLs and, when a terminal is selected, terminal_path for display_file or further processing.
+    """
+    if __request__ is None:
+        return JSONCodec.dumps({'error': 'Request context not available'})
+
+    try:
+        user = UserModel(**__user__) if __user__ else None
+
+        if image_url and image_url.startswith('/') and not image_url.startswith('/api/v1/files/'):
+            data = await get_terminal_file(__request__, user, __metadata__ or {}, image_url, max_bytes=50 * 1024 * 1024)
+            image_url = await asyncio.to_thread(get_image_data_url, data)
+
+        videos = await video_generations(
+            request=__request__,
+            form_data=CreateVideoForm(
+                prompt=prompt,
+                seconds=seconds,
+                size=size,
+                image=image_url,
+                model=get_requested_video_model(__metadata__),
+            ),
+            metadata=(
+                {'channel_id': __chat_id__.removeprefix('channel:'), 'message_id': __message_id__}
+                if isinstance(__chat_id__, str) and __chat_id__.startswith('channel:')
+                else None
+            ),
+            user=user,
+        )
+
+        await upload_files_to_terminal(
+            __request__, user, videos, __metadata__ or {}, {'__event_call__': __event_call__}
+        )
+
+        # Prepare file entries for the videos
+        video_files = [{'type': 'video', **video} for video in videos]
+
+        # Persist files to DB if chat context is available
+        if is_saved_chat_id(__chat_id__) and __message_id__ and videos:
+            db_files = await Chats.add_message_files_by_id_and_message_id(
+                __chat_id__,
+                __message_id__,
+                video_files,
+            )
+            if db_files is not None:
+                video_files = db_files
+
+        # Emit the videos to the UI if event emitter is available
+        if __event_emitter__ and video_files:
+            await __event_emitter__(
+                {
+                    'type': 'chat:message:files',
+                    'data': {
+                        'files': video_files,
+                    },
+                }
+            )
+            # Return a message indicating the video is already displayed
+            return JSONCodec.dumps(
+                {
+                    'status': 'success',
+                    'message': (
+                        'The video is already visible in chat. Use terminal_path with terminal tools or '
+                        'display_file when available to continue the requested task.'
+                    ),
+                    'videos': videos,
+                },
+                ensure_ascii=False,
+            )
+
+        return JSONCodec.dumps({'status': 'success', 'videos': videos}, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'generate_video error: {e}')
+        return JSONCodec.dumps({'error': str(getattr(e, 'detail', None) or e)})
+
+
+# User input tools
 
 
 async def ask_user(
@@ -652,9 +757,7 @@ async def ask_user(
         return JSONCodec.dumps({'status': 'error', 'error': str(e)}, ensure_ascii=False)
 
 
-# =============================================================================
-# CODE INTERPRETER TOOLS
-# =============================================================================
+# Code interpreter tools
 
 
 async def execute_code(
@@ -819,9 +922,7 @@ async def execute_code(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# MEMORY TOOLS
-# =============================================================================
+# Memory tools
 
 
 async def list_memory_paths(
@@ -1146,9 +1247,7 @@ async def list_memories(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# NOTES TOOLS
-# =============================================================================
+# Notes tools
 
 
 async def search_notes(
@@ -1634,9 +1733,41 @@ async def replace_note_content(
         return JSONCodec.dumps({'error': str(e), 'code': 'unexpected_error'})
 
 
-# =============================================================================
-# CHATS TOOLS
-# =============================================================================
+# Chats tools
+
+
+async def search_users(
+    query: str,
+    count: int = 5,
+    __user__: dict = None,
+) -> str:
+    """
+    Search users by name or email, including to resolve @mentions. To mention a user,
+    copy their exact mention token into your reply. Only users with chat access are notified.
+
+    :param query: Name or email to search for
+    :param count: Maximum results to return (default: 5, maximum: 20)
+    :return: JSON list of users with id, name, email, and mention token
+    """
+    if not __user__ or __user__.get('role') not in {'user', 'admin'}:
+        return JSONCodec.dumps({'error': 'Verified user context required'})
+
+    try:
+        result = await Users.get_users(
+            filter={'query': query, 'roles': ['user', 'admin']},
+            sort={'order_by': 'name', 'direction': 'asc'},
+            limit=max(1, min(count, 20)),
+        )
+        return JSONCodec.dumps(
+            [
+                {'id': user.id, 'name': user.name, 'email': user.email, 'mention': f'<@U:{user.id}>'}
+                for user in result['users']
+            ],
+            ensure_ascii=False,
+        )
+    except Exception:
+        log.exception('search_users failed')
+        return JSONCodec.dumps({'error': 'Could not search users'})
 
 
 async def search_chats(
@@ -1750,7 +1881,7 @@ async def view_chat(
         history = chat.chat.get('history', {})
         msg_dict = history.get('messages', {})
 
-        # Build message chain from currentId
+        # Follow parent links from currentId; conversations have family trees too.
         current_id = history.get('currentId')
         visited = set()
 
@@ -1766,6 +1897,24 @@ async def view_chat(
                 )
             current_id = msg.get('parentId') if msg else None
 
+        truncation = {}
+        max_chars = await Config.get('chats.view_max_chars')
+        if max_chars and sum(len(str(message['content'] or '')) for message in messages) > max_chars:
+            remaining_chars = max_chars
+            kept_messages = []
+            for message in messages:
+                if remaining_chars <= 0:
+                    break
+                content = str(message['content'] or '')[:remaining_chars]
+                kept_messages.append({**message, 'content': content})
+                remaining_chars -= len(content)
+            truncation = {
+                'truncated': True,
+                'total_messages': len(messages),
+                'returned_messages': len(kept_messages),
+            }
+            messages = kept_messages
+
         # Reverse to get chronological order
         messages.reverse()
 
@@ -1776,6 +1925,7 @@ async def view_chat(
                 'messages': messages,
                 'updated_at': chat.updated_at,
                 'created_at': chat.created_at,
+                **truncation,
             },
             ensure_ascii=False,
         )
@@ -1784,9 +1934,7 @@ async def view_chat(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# SUB-AGENT TOOL
-# =============================================================================
+# Sub-agent tool
 
 
 async def delegate_task(
@@ -1794,6 +1942,7 @@ async def delegate_task(
     context: str = '',
     file_ids: list[str] | None = None,
     background: bool = False,
+    model_id: str | None = None,
     __request__: Request = None,
     __user__: dict = None,
     __metadata__: dict = None,
@@ -1801,13 +1950,14 @@ async def delegate_task(
     __message_id__: str = None,
 ) -> str:
     """
-    Delegate focused work to a parallel sub-agent using the current model and tools.
+    Delegate focused work to a parallel sub-agent using the current tools.
 
     :param task: The specific task for the sub-agent to complete
     :param context: Relevant context, decisions, or file paths for the task
     :param file_ids: Attached file IDs the sub-agent needs. Use this for images or files;
         do not put file IDs only in context.
     :param background: Return immediately and continue this chat when the sub-agent finishes
+    :param model_id: ID of an available sub-agent model. Omit to use the current model
     :return: Foreground result text, or a JSON dispatch handle for background work
     """
     if __request__ is None:
@@ -1822,6 +1972,7 @@ async def delegate_task(
         context,
         background,
         file_ids=file_ids,
+        model_id=model_id,
         request=__request__,
         user_data=__user__ or {},
         metadata=__metadata__ or {},
@@ -1867,9 +2018,7 @@ async def timer(
     )
 
 
-# =============================================================================
-# CHANNELS TOOLS
-# =============================================================================
+# Channels tools
 
 
 async def search_channels(
@@ -2109,7 +2258,7 @@ async def view_channel_thread(
         # Build the response
         messages = []
 
-        # Add parent message first
+        # Parent message first; the replies need something to reply to.
         messages.append(
             {
                 'id': parent_message.id,
@@ -2121,7 +2270,7 @@ async def view_channel_thread(
             }
         )
 
-        # Add thread replies (reverse to get chronological order)
+        # Reverse the replies into chronological order; spoilers go at the end.
         for reply in reversed(thread_replies):
             messages.append(
                 {
@@ -2150,9 +2299,7 @@ async def view_channel_thread(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# KNOWLEDGE BASE TOOLS
-# =============================================================================
+# Knowledge base tools
 
 
 async def list_knowledge_bases(
@@ -2859,6 +3006,21 @@ async def grep_knowledge_files(
         return JSONCodec.dumps({'error': str(e)})
 
 
+def _numbered_lines_within_cap(all_lines: list[str], start: int, end: int) -> tuple[str, int]:
+    """Number lines start..end, stopping at the last whole line that fits VIEW_FILE_MAX_CHARS."""
+    numbered_lines = []
+    used_chars = 0
+    for line_index in range(start, end):
+        numbered_line = f'{line_index + 1}: {all_lines[line_index]}'
+        if used_chars + len(numbered_line) > VIEW_FILE_MAX_CHARS:
+            if numbered_lines:
+                return '\n'.join(numbered_lines), line_index
+            return numbered_line[:VIEW_FILE_MAX_CHARS], line_index + 1
+        numbered_lines.append(numbered_line)
+        used_chars += len(numbered_line) + 1
+    return '\n'.join(numbered_lines), end
+
+
 async def view_file(
     file_id: str,
     offset: int = 0,
@@ -2923,11 +3085,10 @@ async def view_file(
         if start_line is not None or end_line is not None:
             all_lines = content.split('\n')
             total_lines = len(all_lines)
-            s = max(1, int(start_line or 1)) - 1  # 1-indexed to 0-indexed
-            e = min(total_lines, int(end_line) if end_line else s + 100)
-            selected = all_lines[s:e]
-            sliced = '\n'.join(f'{s + i + 1}: {line}' for i, line in enumerate(selected))
-            is_truncated = e < total_lines
+            start_index = max(1, int(start_line or 1)) - 1  # 1-indexed to 0-indexed
+            end_index = min(total_lines, int(end_line) if end_line else start_index + 100)
+            sliced, end_index = _numbered_lines_within_cap(all_lines, start_index, end_index)
+            is_truncated = end_index < total_lines
             result = {
                 'id': file.id,
                 'filename': file.filename,
@@ -2935,11 +3096,11 @@ async def view_file(
                 'updated_at': file.updated_at,
                 'created_at': file.created_at,
                 'total_lines': total_lines,
-                'showing_lines': f'{s + 1}-{e}',
+                'showing_lines': f'{start_index + 1}-{end_index}',
             }
             if is_truncated:
                 result['truncated'] = True
-                result['next_start_line'] = e + 1
+                result['next_start_line'] = end_index + 1
             return JSONCodec.dumps(result, ensure_ascii=False)
 
         sliced = content[offset : offset + max_chars]
@@ -3064,11 +3225,10 @@ async def view_knowledge_file(
         if start_line is not None or end_line is not None:
             all_lines = content.split('\n')
             total_lines = len(all_lines)
-            s = max(1, int(start_line or 1)) - 1
-            e = min(total_lines, int(end_line) if end_line else s + 100)
-            selected = all_lines[s:e]
-            sliced = '\n'.join(f'{s + i + 1}: {line}' for i, line in enumerate(selected))
-            is_truncated = e < total_lines
+            start_index = max(1, int(start_line or 1)) - 1
+            end_index = min(total_lines, int(end_line) if end_line else start_index + 100)
+            sliced, end_index = _numbered_lines_within_cap(all_lines, start_index, end_index)
+            is_truncated = end_index < total_lines
             result = {
                 'id': file.id,
                 'filename': file.filename,
@@ -3076,14 +3236,14 @@ async def view_knowledge_file(
                 'updated_at': file.updated_at,
                 'created_at': file.created_at,
                 'total_lines': total_lines,
-                'showing_lines': f'{s + 1}-{e}',
+                'showing_lines': f'{start_index + 1}-{end_index}',
             }
             if knowledge_info:
                 result['knowledge_id'] = knowledge_info['id']
                 result['knowledge_name'] = knowledge_info['name']
             if is_truncated:
                 result['truncated'] = True
-                result['next_start_line'] = e + 1
+                result['next_start_line'] = end_index + 1
             return JSONCodec.dumps(result, ensure_ascii=False)
 
         sliced = content[offset : offset + max_chars]
@@ -3664,9 +3824,7 @@ async def query_knowledge_bases(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# SKILLS TOOLS
-# =============================================================================
+# Skills tools
 
 
 async def view_skill(
@@ -3888,6 +4046,47 @@ async def grep_skill_files(
         return result
 
 
+async def create_tool(
+    id: str,
+    name: str,
+    description: str,
+    content: str,
+    __request__: Request = None,
+    __user__: dict = None,
+) -> str:
+    """Create a private Python tool in the workspace.
+    Source must define a Tools class with public methods, type hints, and descriptive docstrings.
+    Use Valves or UserValves for credentials; do not embed secrets. Saving executes the Python module on the server.
+
+    :param id: Unique lowercase Python identifier for the toolkit.
+    :param name: Display name.
+    :param description: Short description of what the tool does.
+    :param content: Complete Python source, without Markdown fences.
+    """
+    try:
+        from types import SimpleNamespace
+
+        from open_webui.models.tools import ToolForm
+        from open_webui.routers.tools import create_new_tools
+        from open_webui.utils.access_control import has_permission
+
+        if __request__ is None or not __user__:
+            raise ValueError('Request and user context required')
+        if __user__.get('role') != 'admin' and not await has_permission(
+            __user__['id'], 'workspace.tools', await Config.get('user.permissions')
+        ):
+            raise ValueError('Tool authoring permission required')
+        result = await create_new_tools(
+            __request__,
+            ToolForm(id=id, name=name, content=content, meta={'description': description}, access_grants=[]),
+            SimpleNamespace(**__user__),
+            None,
+        )
+        return JSONCodec.dumps({'id': result.id, 'url': '/workspace/tools/edit?id=' + result.id})
+    except Exception as error:
+        return JSONCodec.dumps({'error': getattr(error, 'detail', str(error))})
+
+
 async def create_skill(
     id: str,
     name: str,
@@ -3999,31 +4198,41 @@ async def update_skill_files(
         return JSONCodec.dumps({'error': detail})
 
 
-# =============================================================================
-# TOOL SEARCH
-# =============================================================================
+# Tool search
 
 
 async def search_tools(
     query: str,
     count: int = 5,
     __metadata__: dict = None,
+    __request__: Request = None,
+    __user__: dict = None,
 ) -> str:
     """
-    Search the tools listed in <available_tools> and return their full definitions.
+    Discover available tools by capability and return their full definitions.
     Pass the exact tool name when you already know it.
-    Invoke a result with call_tool(tool_name, params), where params is a JSON-encoded object
-    matching the tool's parameters. Do not call deferred tools directly by name.
+    Invoke results with call_tool(calls=[{"tool_name": "exact_name", "params": "{}"}, ...]).
+    Each params value is a JSON-encoded object matching that tool's parameters.
+    Batch independent calls together. Do not call deferred tools directly by name.
 
     :param query: Keywords describing the capability you need (e.g. "jira create issue"), or an exact tool name
     :param count: Maximum number of results to return (default: 5, max: 20)
     :return: JSON with the definitions of the matching tools, which can then be invoked through call_tool
     """
-    from open_webui.utils.tool_search import search_deferred_tools
+    from open_webui.utils.tool_search import ToolSearchError, rank_deferred_tools
 
     tools = __metadata__['tools']
     candidates = {name: tools[name]['spec'] for name in __metadata__['deferred_tools']}
-    matches = search_deferred_tools(query, candidates, count)
+    try:
+        matches = await rank_deferred_tools(
+            query,
+            candidates,
+            count,
+            request=__request__,
+            user=UserModel(**__user__) if __user__ else None,
+        )
+    except ToolSearchError as error:
+        return JSONCodec.dumps({'error': str(error)})
     if not matches:
         return JSONCodec.dumps(
             {'tools': [], 'message': 'No matching tools found. Try different keywords or the exact tool name.'}
@@ -4031,9 +4240,7 @@ async def search_tools(
     return JSONCodec.dumps({'tools': [candidates[name] for name in matches]})
 
 
-# =============================================================================
-# TASK MANAGEMENT TOOLS
-# =============================================================================
+# Task management tools
 
 from typing import Literal
 
@@ -4176,9 +4383,7 @@ async def update_task(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# AUTOMATION TOOLS
-# =============================================================================
+# Automation tools
 
 
 async def _validate_owned_automation_folder(user_id: str, folder_id: Optional[str]) -> Optional[str]:
@@ -4207,12 +4412,12 @@ async def create_automation(
     The automation will use the current chat model.
 
     The rrule parameter must be a valid iCalendar RRULE string. Common examples:
-    - Every day at 9am: "DTSTART:20250101T090000\\nRRULE:FREQ=DAILY"
-    - Every Monday at 8am: "DTSTART:20250106T080000\\nRRULE:FREQ=WEEKLY;BYDAY=MO"
+    - Every day at 9am: "DTSTART:20250101T090000\nRRULE:FREQ=DAILY"
+    - Every Monday at 8am: "DTSTART:20250106T080000\nRRULE:FREQ=WEEKLY;BYDAY=MO"
     - Every hour: "RRULE:FREQ=HOURLY;INTERVAL=1"
     - Every 30 minutes: "RRULE:FREQ=MINUTELY;INTERVAL=30"
-    - Once at a specific time: "DTSTART:20250415T140000\\nRRULE:FREQ=DAILY;COUNT=1"
-    - First day of every month: "DTSTART:20250101T090000\\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1"
+    - Once at a specific time: "DTSTART:20250415T140000\nRRULE:FREQ=DAILY;COUNT=1"
+    - First day of every month: "DTSTART:20250101T090000\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1"
 
     The DTSTART time should reflect the desired execution time. Use COUNT=1 for one-time automations.
 
@@ -4571,9 +4776,7 @@ async def delete_automation(
         return JSONCodec.dumps({'error': str(e)})
 
 
-# =============================================================================
-# CALENDAR TOOLS
-# =============================================================================
+# Calendar tools
 
 
 MAX_CALENDAR_RANGE_END_NS = 2**63 - 1

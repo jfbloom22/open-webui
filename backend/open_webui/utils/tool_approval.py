@@ -102,6 +102,30 @@ async def resolve_tool_call_output(
         function_call.setdefault('call_id', form_data.call_id)
         tool_name = function_call.get('name')
 
+        # Terminal agent requests carry the provider's event; older saved messages call it 'native'.
+        if function_call.get('provider_data') is not None or function_call.get('native') is not None:
+            from open_webui.utils.auth import decode_token
+
+            token = (message.get('meta') or {}).get('agent')
+            binding = decode_token(token) if isinstance(token, str) else None
+            if (
+                not binding
+                or binding.get('typ') != 'agent_session'
+                or binding.get('user') != user.id
+                or binding.get('chat') != chat_id
+            ):
+                raise HTTPException(403, 'Invalid agent conversation')
+            if message.get('done') or function_call.get('status') != 'pending' or function_call.get('agent_resolution'):
+                raise HTTPException(409, 'Agent request is no longer pending')
+            if (form_data.action == 'answer') != (tool_name == 'ask_user') and form_data.action != 'reject':
+                raise HTTPException(400, 'Invalid response for this agent request')
+            if form_data.action == 'answer' and not isinstance(form_data.answers, dict):
+                raise HTTPException(400, 'Answers must be keyed by question')
+            function_call['agent_resolution'] = form_data.model_dump()
+            function_call['status'] = 'queued'
+            # The running agent client consumes this persisted response. Do not start a model/tool loop.
+            return {'chat': chat, 'output': output, 'resume': None}
+
         if (
             any(
                 item.get('type') == 'function_call_output' and item.get('call_id') == form_data.call_id
@@ -170,6 +194,11 @@ async def resolve_tool_call_output(
                 resume = 'model'
             else:
                 pending[0]['status'] = 'pending'
+                mode = ((chat.chat or {}).get('params') or {}).get('tool_approval_mode') or (
+                    (message.get('meta') or {}).get('params') or {}
+                ).get('tool_approval_mode')
+                if mode == 'auto':
+                    resume = 'tools'
 
     event_emitter = await get_event_emitter(
         {
@@ -209,7 +238,7 @@ async def build_tool_approval_resume_payload(chat_id: str, message_id: str, chat
         **(message_meta.get('params') if isinstance(message_meta.get('params'), dict) else {}),
     }
     current_approval_mode = chat_params.get('tool_approval_mode')
-    if current_approval_mode in {'ask', 'full'}:
+    if current_approval_mode in {'ask', 'full', 'auto'}:
         params['tool_approval_mode'] = current_approval_mode
     if 'tool_approval_mode' not in params:
         params['tool_approval_mode'] = 'ask'
@@ -241,7 +270,6 @@ async def build_tool_approval_resume_payload(chat_id: str, message_id: str, chat
         'tool_ids': message_meta.get('tool_ids') or None,
         'skill_ids': message_meta.get('skill_ids') or None,
         'terminal_id': message_meta.get('terminal_id') or None,
-        'tool_servers': message_meta.get('tool_servers') or None,
         'features': message_meta.get('features') or {},
         'variables': message_meta.get('variables') or {},
         'chat_variables': chat.variables if (assistant_message.get('user_id') or chat.user_id) == chat.user_id else {},

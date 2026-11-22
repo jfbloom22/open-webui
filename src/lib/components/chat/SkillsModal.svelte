@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { resolveLocalizedResource } from '$lib/utils/localizedContent';
 	import { getContext } from 'svelte';
-	import { skills, terminalSkills } from '$lib/stores';
+	import type { Writable } from 'svelte/store';
+	import { skills } from '$lib/stores';
 
 	import Modal from '../common/Modal.svelte';
 	import Collapsible from '../common/Collapsible.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
+
+	export let terminalSkills: Writable<any[]>;
 
 	export let show = false;
 	export let selectedSkillIds = [];
@@ -19,12 +22,12 @@
 	const i18n = getContext('i18n');
 </script>
 
-<Modal bind:show size="md">
+<Modal ariaLabel={$i18n.t('Available Skills')} bind:show size="md">
 	<div>
 		<div class=" flex justify-between dark:text-gray-300 px-4 pt-3 pb-1">
 			<div class=" text-sm font-medium self-center">{$i18n.t('Available Skills')}</div>
 			<button
-				class="self-center rounded-lg p-1 text-gray-500 transition hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+				class="self-center rounded-lg py-1 text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-0"
 				aria-label={$i18n.t('Close')}
 				on:click={() => {
 					show = false;

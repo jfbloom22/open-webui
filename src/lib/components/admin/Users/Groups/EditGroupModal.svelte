@@ -184,7 +184,15 @@
 	}}
 />
 
-<Modal size="lg" bind:show>
+<Modal
+	ariaLabel={custom
+		? edit
+			? $i18n.t('Edit User Group')
+			: $i18n.t('Add User Group')
+		: $i18n.t('Edit Default Permissions')}
+	size="lg"
+	bind:show
+>
 	<div>
 		<div class=" flex justify-between dark:text-gray-100 px-4 pt-3 mb-1">
 			<div class=" text-sm font-medium self-center">
@@ -200,7 +208,7 @@
 			</div>
 			<button
 				aria-label={$i18n.t('Close')}
-				class="self-center rounded-lg p-1 text-gray-500 transition hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+				class="self-center rounded-lg py-1 text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-0"
 				on:click={() => {
 					show = false;
 				}}
@@ -410,7 +418,7 @@
 									<button
 										class="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-2.5 text-xs font-normal text-white transition hover:bg-black disabled:opacity-60 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:cursor-not-allowed"
 										type="submit"
-										disabled={loading}
+										disabled={loading || (custom && !name?.trim())}
 									>
 										{$i18n.t('Save')}
 

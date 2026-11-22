@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { v4 as uuidv4 } from 'uuid';
-	import { config, settings, user as _user, mobile, temporaryChatEnabled } from '$lib/stores';
+	import { config, settings, user as _user, mobile } from '$lib/stores';
 	import { refreshChatList } from '$lib/stores/chatList';
 	import { tick, getContext, onMount, onDestroy, createEventDispatcher } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -15,12 +15,14 @@
 	import Spinner from '../common/Spinner.svelte';
 
 	import ChatPlaceholder from './ChatPlaceholder.svelte';
+	import { getChatContext } from './context';
 
 	const i18n = getContext('i18n');
 
 	export let className = 'h-full flex pt-18';
 
 	export let chatId = '';
+	const { temporary } = getChatContext();
 	export let user = $_user;
 
 	export let prompt;
@@ -45,8 +47,9 @@
 	export let forkHandler: Function | null = null;
 
 	export let readOnly = false;
-	export let shareMode: 'continue' | null = null;
+	export let writeAccess = false;
 	export let allowDelete = true;
+	export let allowToolApproval: boolean = false;
 	export let compactPreview = false;
 	export let editCodeBlock = true;
 
@@ -54,9 +57,11 @@
 	export let bottomPadding = false;
 	export let autoScroll;
 	export let messagesContainerId = 'messages-container';
+	export let branchPointMessageId: string | null = null;
 
 	export let onSelect = (e) => {};
 	export let onInsertToNote: ((content: string) => void) | null = null;
+	export let onOpenArtifacts: ((code?: string) => void) | null = null;
 
 	export let messagesCount: number | null = 8;
 	let messagesLoading = false;
@@ -69,7 +74,8 @@
 
 	const loadMoreMessages = async () => {
 		const element = getMessagesContainer();
-		const previousScrollHeight = element?.scrollHeight ?? 0;
+		const firstMessage = element?.querySelector('.message-listitem');
+		const previousTop = firstMessage?.getBoundingClientRect().top ?? 0;
 
 		messagesLoading = true;
 		messagesCount += 8;
@@ -78,8 +84,8 @@
 
 		await tick();
 
-		if (element) {
-			element.scrollTop += element.scrollHeight - previousScrollHeight;
+		if (element && firstMessage) {
+			element.scrollTop += firstMessage.getBoundingClientRect().top - previousTop;
 		}
 
 		messagesLoading = false;
@@ -95,6 +101,7 @@
 		const visitedMessageIds = new Set();
 
 		while (message && (messagesCount !== null ? _messages.length < messagesCount : true)) {
+			if (message.id === branchPointMessageId) break;
 			if (visitedMessageIds.has(message.id)) {
 				console.warn('Circular dependency detected in message history', message.id);
 				break;
@@ -192,7 +199,7 @@
 	};
 
 	const updateChat = async () => {
-		if (!$temporaryChatEnabled) {
+		if (!$temporary) {
 			history = history;
 			await tick();
 			const res = await updateChatById(localStorage.token, chatId, {
@@ -251,8 +258,11 @@
 	};
 
 	const showPreviousMessage = async (message) => {
+		const refocus = document.activeElement?.classList.contains('previous-message-button');
+		let messageId = message.id;
+
 		if (message.parentId !== null) {
-			let messageId =
+			messageId =
 				history.messages[message.parentId].childrenIds[
 					Math.max(history.messages[message.parentId].childrenIds.indexOf(message.id) - 1, 0)
 				];
@@ -264,7 +274,7 @@
 			let childrenIds = Object.values(history.messages)
 				.filter((message) => message.parentId === null)
 				.map((message) => message.id);
-			let messageId = childrenIds[Math.max(childrenIds.indexOf(message.id) - 1, 0)];
+			messageId = childrenIds[Math.max(childrenIds.indexOf(message.id) - 1, 0)];
 
 			if (message.id !== messageId) {
 				history.currentId = getDeepestChildId(history, messageId);
@@ -272,6 +282,12 @@
 		}
 
 		await tick();
+
+		if (refocus) {
+			document
+				.querySelector<HTMLElement>(`#message-${messageId} .previous-message-button`)
+				?.focus();
+		}
 
 		if ($settings?.scrollOnBranchChange ?? true) {
 			const element = getMessagesContainer();
@@ -286,8 +302,11 @@
 	};
 
 	const showNextMessage = async (message) => {
+		const refocus = document.activeElement?.classList.contains('next-message-button');
+		let messageId = message.id;
+
 		if (message.parentId !== null) {
-			let messageId =
+			messageId =
 				history.messages[message.parentId].childrenIds[
 					Math.min(
 						history.messages[message.parentId].childrenIds.indexOf(message.id) + 1,
@@ -302,7 +321,7 @@
 			let childrenIds = Object.values(history.messages)
 				.filter((message) => message.parentId === null)
 				.map((message) => message.id);
-			let messageId =
+			messageId =
 				childrenIds[Math.min(childrenIds.indexOf(message.id) + 1, childrenIds.length - 1)];
 
 			if (message.id !== messageId) {
@@ -311,6 +330,10 @@
 		}
 
 		await tick();
+
+		if (refocus) {
+			document.querySelector<HTMLElement>(`#message-${messageId} .next-message-button`)?.focus();
+		}
 
 		if ($settings?.scrollOnBranchChange ?? true) {
 			const element = getMessagesContainer();
@@ -470,7 +493,7 @@
 		history.currentId = getDeepestChildId(history, parentMessageId);
 		history = history;
 
-		if (!$temporaryChatEnabled) {
+		if (!$temporary) {
 			const res = await deleteChatMessageById(localStorage.token, chatId, messageId);
 			if (res?.chat?.history) {
 				history = res.chat.history;
@@ -494,14 +517,14 @@
 </script>
 
 <div class={className}>
-	{#if Object.keys(history?.messages ?? {}).length == 0}
+	{#if Object.keys(history?.messages ?? {}).length == 0 || (branchPointMessageId && history?.currentId === branchPointMessageId)}
 		<ChatPlaceholder modelIds={selectedModels} {atSelectedModel} {onSelect} />
 	{:else}
 		<div class="w-full pt-2">
 			{#key chatId}
 				<section class="w-full" aria-labelledby="chat-conversation">
 					<h2 class="sr-only" id="chat-conversation">{$i18n.t('Chat Conversation')}</h2>
-					{#if messages.at(0)?.parentId !== null}
+					{#if messages.at(0)?.parentId !== null && messages.at(0)?.parentId !== branchPointMessageId}
 						<Loader
 							on:visible={(e) => {
 								console.log('visible');
@@ -522,7 +545,7 @@
 								<Message
 									{chatId}
 									bind:history
-									{selectedModels}
+									selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
 									messageId={message.id}
 									idx={messageIdx}
 									{user}
@@ -544,13 +567,15 @@
 									{onToolCallResolved}
 									{forkHandler}
 									{allowDelete}
+									{allowToolApproval}
 									{triggerScroll}
 									{readOnly}
 									{compactPreview}
 									{editCodeBlock}
 									{topPadding}
 									{onInsertToNote}
-									{shareMode}
+									{onOpenArtifacts}
+									{writeAccess}
 								/>
 							{/each}
 						</ul>

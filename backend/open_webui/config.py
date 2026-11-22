@@ -57,9 +57,7 @@ class EndpointFilter(logging.Filter):
 
 logging.getLogger('uvicorn.access').addFilter(EndpointFilter())
 
-####################################
 # Initialization
-####################################
 
 
 def run_migrations():
@@ -92,9 +90,7 @@ async def import_legacy_config_json():
     os.rename(f'{DATA_DIR}/config.json', f'{DATA_DIR}/old_config.json')
 
 
-####################################
 # Static DIR
-####################################
 
 STATIC_DIR = Path(os.getenv('STATIC_DIR', OPEN_WEBUI_DIR / 'static')).resolve()
 STATIC_SOURCE_DIR = FRONTEND_BUILD_DIR / 'static'
@@ -151,7 +147,7 @@ if frontend_loader.exists():
         logging.error(f'An error occurred: {e}')
 
 
-# --- Storage Provider ---
+# Storage provider
 
 STORAGE_PROVIDER = os.getenv('STORAGE_PROVIDER', 'local')  # defaults to local, s3
 STORAGE_LOCAL_CACHE = os.getenv('STORAGE_LOCAL_CACHE', 'true').lower() == 'true'
@@ -173,25 +169,19 @@ AZURE_STORAGE_ENDPOINT = os.getenv('AZURE_STORAGE_ENDPOINT', None)
 AZURE_STORAGE_CONTAINER_NAME = os.getenv('AZURE_STORAGE_CONTAINER_NAME', None)
 AZURE_STORAGE_KEY = os.getenv('AZURE_STORAGE_KEY', None)
 
-####################################
 # File Upload DIR
-####################################
 
 UPLOAD_DIR = DATA_DIR / 'uploads'
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
-####################################
 # Cache DIR
-####################################
 
 CACHE_DIR = DATA_DIR / 'cache'
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-####################################
 # CUSTOM_NAME (Legacy)
-####################################
 
 # LICENSE covers this legacy Open WebUI branding path.
 # Do not alter, remove, obscure, or replace it except as LICENSE permits:
@@ -229,16 +219,7 @@ if CUSTOM_NAME:
         pass
 
 
-####################################
-# DIRECT CONNECTIONS
-####################################
-
-ENABLE_DIRECT_CONNECTIONS = os.getenv('ENABLE_DIRECT_CONNECTIONS', 'False').lower() == 'true'
-ENABLE_DIRECT_INTEGRATIONS = os.getenv('ENABLE_DIRECT_INTEGRATIONS', 'False').lower() == 'true'
-
-####################################
 # OLLAMA_BASE_URL
-####################################
 
 ENABLE_OLLAMA_API = os.getenv('ENABLE_OLLAMA_API', 'True').lower() == 'true'
 
@@ -246,7 +227,7 @@ OLLAMA_API_BASE_URL = os.getenv('OLLAMA_API_BASE_URL', 'http://localhost:11434/a
 
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', '')
 if OLLAMA_BASE_URL:
-    # Remove trailing slash
+    # Trim the trailing slash; the next path will bring its own.
     OLLAMA_BASE_URL = OLLAMA_BASE_URL[:-1] if OLLAMA_BASE_URL.endswith('/') else OLLAMA_BASE_URL
 
 
@@ -317,9 +298,7 @@ if _ollama_api_configs:
     except (JSONCodec.JSONDecodeError, TypeError):
         log.warning('OLLAMA_API_CONFIGS is not valid JSON, ignoring')
 
-####################################
 # OPENAI_API
-####################################
 
 
 ENABLE_OPENAI_API = os.getenv('ENABLE_OPENAI_API', 'True').lower() == 'true'
@@ -373,16 +352,12 @@ except Exception:
 OPENAI_API_BASE_URL = 'https://api.openai.com/v1'
 
 
-####################################
-# MODELS
-####################################
+# Models
 
 ENABLE_BASE_MODELS_CACHE = os.getenv('ENABLE_BASE_MODELS_CACHE', 'False').lower() == 'true'
 
 
-####################################
 # TOOL_SERVERS
-####################################
 
 try:
     tool_server_connections = JSONCodec.loads(os.getenv('TOOL_SERVER_CONNECTIONS', '[]'))
@@ -395,9 +370,7 @@ TOOL_SERVER_CONNECTIONS = tool_server_connections
 
 OAUTH_CLIENT_TIMEOUT = os.getenv('OAUTH_CLIENT_TIMEOUT', '')
 
-####################################
 # TERMINAL_SERVER
-####################################
 
 terminal_server_connections = JSONCodec.loads(os.getenv('TERMINAL_SERVER_CONNECTIONS', '[]'))
 
@@ -408,9 +381,7 @@ try:
 except Exception:
     TERMINAL_PROXY_HEADERS = {}
 
-####################################
 # Code Interpreter
-####################################
 
 ENABLE_CODE_EXECUTION = os.getenv('ENABLE_CODE_EXECUTION', 'True').lower() == 'true'
 
@@ -502,9 +473,7 @@ CODE_INTERPRETER_PYODIDE_PROMPT = """
 - Use `import os; os.listdir('/mnt/uploads')` to discover available files."""
 
 
-####################################
 # Vector Database
-####################################
 
 VECTOR_DB = os.getenv('VECTOR_DB', 'pgvector' if USE_SLIM else 'chroma')
 
@@ -841,9 +810,7 @@ VALKEY_HNSW_M = int(os.getenv('VALKEY_HNSW_M', '16'))
 VALKEY_HNSW_EF_CONSTRUCTION = int(os.getenv('VALKEY_HNSW_EF_CONSTRUCTION', '200'))
 VALKEY_HNSW_EF_RUNTIME = int(os.getenv('VALKEY_HNSW_EF_RUNTIME', '10'))
 
-####################################
 # Information Retrieval (RAG)
-####################################
 
 
 # If configured, Google Drive will be available as an upload option.
@@ -982,8 +949,8 @@ PADDLEOCR_VL_TOKEN = os.getenv('PADDLEOCR_VL_TOKEN', '')
 BYPASS_EMBEDDING_AND_RETRIEVAL = os.getenv('BYPASS_EMBEDDING_AND_RETRIEVAL', 'False').lower() == 'true'
 
 
-RAG_TOP_K = int(os.getenv('RAG_TOP_K', '3'))
-RAG_TOP_K_RERANKER = int(os.getenv('RAG_TOP_K_RERANKER', '3'))
+RAG_TOP_K = int(os.getenv('RAG_TOP_K', '10'))
+RAG_TOP_K_RERANKER = int(os.getenv('RAG_TOP_K_RERANKER', '10'))
 RAG_RELEVANCE_THRESHOLD = float(os.getenv('RAG_RELEVANCE_THRESHOLD', '0.0'))
 RAG_HYBRID_BM25_WEIGHT = float(os.getenv('RAG_HYBRID_BM25_WEIGHT', '0.5'))
 
@@ -994,8 +961,28 @@ ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS = (
 )
 
 RAG_FULL_CONTEXT = os.getenv('RAG_FULL_CONTEXT', 'False').lower() == 'true'
+RAG_FULL_TEXT_CHAR_THRESHOLD = max(
+    0,
+    int(
+        os.getenv(
+            'RAG_FULL_TEXT_CHAR_THRESHOLD',
+            os.getenv('RAG_RETRIEVAL_CHAR_THRESHOLD', os.getenv('RAG_FULL_CONTEXT_CHAR_THRESHOLD', '50000')),
+        )
+    ),
+)
 
 RAG_FILE_MAX_COUNT = int(os.getenv('RAG_FILE_MAX_COUNT')) if os.getenv('RAG_FILE_MAX_COUNT') else None
+KNOWLEDGE_MAX_UPLOAD_COUNT = (
+    int(os.getenv('KNOWLEDGE_MAX_UPLOAD_COUNT')) if os.getenv('KNOWLEDGE_MAX_UPLOAD_COUNT') else None
+)
+KNOWLEDGE_MAX_FILE_COUNT = int(os.getenv('KNOWLEDGE_MAX_FILE_COUNT')) if os.getenv('KNOWLEDGE_MAX_FILE_COUNT') else None
+KNOWLEDGE_MAX_FILE_SIZE = int(os.getenv('KNOWLEDGE_MAX_FILE_SIZE')) if os.getenv('KNOWLEDGE_MAX_FILE_SIZE') else None
+if KNOWLEDGE_MAX_UPLOAD_COUNT is not None and KNOWLEDGE_MAX_UPLOAD_COUNT <= 0:
+    raise ValueError('KNOWLEDGE_MAX_UPLOAD_COUNT must be a positive integer or unset')
+if KNOWLEDGE_MAX_FILE_COUNT is not None and KNOWLEDGE_MAX_FILE_COUNT <= 0:
+    raise ValueError('KNOWLEDGE_MAX_FILE_COUNT must be a positive integer or unset')
+if KNOWLEDGE_MAX_FILE_SIZE is not None and KNOWLEDGE_MAX_FILE_SIZE <= 0:
+    raise ValueError('KNOWLEDGE_MAX_FILE_SIZE must be a positive integer or unset')
 
 RAG_FILE_MAX_SIZE = int(os.getenv('RAG_FILE_MAX_SIZE')) if os.getenv('RAG_FILE_MAX_SIZE') else None
 
@@ -1078,7 +1065,8 @@ TIKTOKEN_CACHE_DIR = os.getenv('TIKTOKEN_CACHE_DIR', f'{CACHE_DIR}/tiktoken')
 TIKTOKEN_ENCODING_NAME = os.getenv('TIKTOKEN_ENCODING_NAME', 'cl100k_base')
 
 
-CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '1000'))
+# Approximate MiniLM's 256-token window at four characters per token.
+CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '1024'))
 
 CHUNK_MIN_SIZE_TARGET = int(os.getenv('CHUNK_MIN_SIZE_TARGET', '0'))
 
@@ -1171,9 +1159,7 @@ YOUTUBE_LOADER_LANGUAGE = os.getenv('YOUTUBE_LOADER_LANGUAGE', 'en').split(',')
 YOUTUBE_LOADER_PROXY_URL = os.getenv('YOUTUBE_LOADER_PROXY_URL', '')
 
 
-####################################
 # Web Search
-####################################
 
 ENABLE_WEB_SEARCH = os.getenv('ENABLE_WEB_SEARCH', 'False').lower() == 'true'
 
@@ -1363,9 +1349,7 @@ except JSONCodec.JSONDecodeError:
 
 LINKUP_SEARCH_PARAMS = linkup_search_params
 
-####################################
 # Images
-####################################
 
 ENABLE_IMAGE_GENERATION = os.getenv('ENABLE_IMAGE_GENERATION', '').lower() == 'true'
 
@@ -1573,9 +1557,15 @@ except JSONCodec.JSONDecodeError:
 
 IMAGES_EDIT_COMFYUI_WORKFLOW_NODES = images_edit_comfyui_workflow_nodes
 
-####################################
+# Videos
+
+ENABLE_VIDEO_GENERATION = os.getenv('ENABLE_VIDEO_GENERATION', '').lower() == 'true'
+
+# How long to wait for a video job to finish, and how often to check on it.
+VIDEO_GENERATION_TIMEOUT = int(os.getenv('VIDEO_GENERATION_TIMEOUT', '900'))
+VIDEO_GENERATION_POLL_INTERVAL = float(os.getenv('VIDEO_GENERATION_POLL_INTERVAL', '5'))
+
 # Audio
-####################################
 
 # Transcription
 WHISPER_MODEL = os.getenv('WHISPER_MODEL', 'base')
@@ -1691,9 +1681,7 @@ AUDIO_TTS_MISTRAL_API_KEY = os.getenv('AUDIO_TTS_MISTRAL_API_KEY', '')
 
 AUDIO_TTS_MISTRAL_API_BASE_URL = os.getenv('AUDIO_TTS_MISTRAL_API_BASE_URL', 'https://api.mistral.ai/v1')
 
-####################################
-# WEBUI
-####################################
+# WebUI
 
 
 WEBUI_URL = os.getenv('WEBUI_URL', '')
@@ -1944,19 +1932,22 @@ USER_PERMISSIONS_CHAT_MULTIPLE_MODELS = os.getenv('USER_PERMISSIONS_CHAT_MULTIPL
 
 USER_PERMISSIONS_CHAT_TEMPORARY = os.getenv('USER_PERMISSIONS_CHAT_TEMPORARY', 'True').lower() == 'true'
 
+USER_PERMISSIONS_CHAT_SIDE_CHAT = os.getenv('USER_PERMISSIONS_CHAT_SIDE_CHAT', 'False').lower() == 'true'
+
 USER_PERMISSIONS_CHAT_TEMPORARY_ENFORCED = (
     os.getenv('USER_PERMISSIONS_CHAT_TEMPORARY_ENFORCED', 'False').lower() == 'true'
 )
 
 
-USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS = (
-    os.getenv('USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS', 'False').lower() == 'true'
-)
-
 USER_PERMISSIONS_FEATURES_WEB_SEARCH = os.getenv('USER_PERMISSIONS_FEATURES_WEB_SEARCH', 'True').lower() == 'true'
 
 USER_PERMISSIONS_FEATURES_IMAGE_GENERATION = (
     os.getenv('USER_PERMISSIONS_FEATURES_IMAGE_GENERATION', 'True').lower() == 'true'
+)
+
+# Off by default: video costs far more per request than images.
+USER_PERMISSIONS_FEATURES_VIDEO_GENERATION = (
+    os.getenv('USER_PERMISSIONS_FEATURES_VIDEO_GENERATION', 'False').lower() == 'true'
 )
 
 USER_PERMISSIONS_FEATURES_CODE_INTERPRETER = (
@@ -1976,6 +1967,8 @@ USER_PERMISSIONS_FEATURES_ENCRYPTED_CHANNELS = (
 USER_PERMISSIONS_FEATURES_API_KEYS = os.getenv('USER_PERMISSIONS_FEATURES_API_KEYS', 'False').lower() == 'true'
 
 USER_PERMISSIONS_FEATURES_MEMORIES = os.getenv('USER_PERMISSIONS_FEATURES_MEMORIES', 'True').lower() == 'true'
+
+USER_PERMISSIONS_FEATURES_SUBAGENTS = os.getenv('USER_PERMISSIONS_FEATURES_SUBAGENTS', 'True').lower() == 'true'
 
 USER_PERMISSIONS_FEATURES_AUTOMATIONS = os.getenv('USER_PERMISSIONS_FEATURES_AUTOMATIONS', 'False').lower() == 'true'
 
@@ -2049,6 +2042,7 @@ DEFAULT_USER_PERMISSIONS = {
         'call': USER_PERMISSIONS_CHAT_CALL,
         'multiple_models': USER_PERMISSIONS_CHAT_MULTIPLE_MODELS,
         'temporary': USER_PERMISSIONS_CHAT_TEMPORARY,
+        'side_chat': USER_PERMISSIONS_CHAT_SIDE_CHAT,
         'temporary_enforced': USER_PERMISSIONS_CHAT_TEMPORARY_ENFORCED,
     },
     'features': {
@@ -2058,12 +2052,13 @@ DEFAULT_USER_PERMISSIONS = {
         'folders': USER_PERMISSIONS_FEATURES_FOLDERS,
         'channels': USER_PERMISSIONS_FEATURES_CHANNELS,
         'encrypted_channels': USER_PERMISSIONS_FEATURES_ENCRYPTED_CHANNELS,
-        'direct_tool_servers': USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS,
         # Chat features
         'web_search': USER_PERMISSIONS_FEATURES_WEB_SEARCH,
         'image_generation': USER_PERMISSIONS_FEATURES_IMAGE_GENERATION,
+        'video_generation': USER_PERMISSIONS_FEATURES_VIDEO_GENERATION,
         'code_interpreter': USER_PERMISSIONS_FEATURES_CODE_INTERPRETER,
         'memories': USER_PERMISSIONS_FEATURES_MEMORIES,
+        'subagents': USER_PERMISSIONS_FEATURES_SUBAGENTS,
         'automations': USER_PERMISSIONS_FEATURES_AUTOMATIONS,
         'calendar': USER_PERMISSIONS_FEATURES_CALENDAR,
         'webhooks': USER_PERMISSIONS_FEATURES_USER_WEBHOOKS,
@@ -2089,6 +2084,10 @@ SKILL_PREVIEW_MAX_CHARS = int(os.environ['SKILL_PREVIEW_MAX_CHARS']) if os.geten
 if SKILL_PREVIEW_MAX_CHARS is not None and SKILL_PREVIEW_MAX_CHARS <= 0:
     raise ValueError('SKILL_PREVIEW_MAX_CHARS must be a positive integer or unset')
 
+VIEW_CHAT_MAX_CHARS = int(os.environ['VIEW_CHAT_MAX_CHARS']) if os.getenv('VIEW_CHAT_MAX_CHARS') else None
+if VIEW_CHAT_MAX_CHARS is not None and VIEW_CHAT_MAX_CHARS <= 0:
+    raise ValueError('VIEW_CHAT_MAX_CHARS must be a positive integer or unset')
+
 ENABLE_CHANNELS = os.getenv('ENABLE_CHANNELS', 'False').lower() == 'true'
 
 ENABLE_ENCRYPTED_CHANNELS = os.getenv('ENABLE_ENCRYPTED_CHANNELS', 'False').lower() == 'true'
@@ -2103,10 +2102,15 @@ ENABLE_AUTOMATIONS = os.getenv('ENABLE_AUTOMATIONS', 'True').lower() == 'true'
 
 ENABLE_SUBAGENTS = os.getenv('ENABLE_SUBAGENTS', 'False').lower() == 'true'
 SUBAGENTS_BACKGROUND_ENABLED = os.getenv('SUBAGENTS_BACKGROUND_ENABLED', 'False').lower() == 'true'
-SUBAGENTS_MAX_CONCURRENT = int(os.getenv('SUBAGENTS_MAX_CONCURRENT', '20'))
-SUBAGENTS_MAX_ASYNC = int(os.getenv('SUBAGENTS_MAX_ASYNC', '20'))
-SUBAGENTS_MAX_ITERATIONS = int(os.getenv('SUBAGENTS_MAX_ITERATIONS', '30'))
-SUBAGENTS_MAX_OUTPUT = int(os.getenv('SUBAGENTS_MAX_OUTPUT', '30000'))
+# Leave empty for unlimited.
+SUBAGENTS_MAX_CONCURRENT = os.getenv('SUBAGENTS_MAX_CONCURRENT', '')
+SUBAGENTS_MAX_CONCURRENT = int(SUBAGENTS_MAX_CONCURRENT) if SUBAGENTS_MAX_CONCURRENT else None
+SUBAGENTS_MAX_ASYNC = os.getenv('SUBAGENTS_MAX_ASYNC', '')
+SUBAGENTS_MAX_ASYNC = int(SUBAGENTS_MAX_ASYNC) if SUBAGENTS_MAX_ASYNC else None
+SUBAGENTS_MAX_ITERATIONS = os.getenv('SUBAGENTS_MAX_ITERATIONS', '')
+SUBAGENTS_MAX_ITERATIONS = int(SUBAGENTS_MAX_ITERATIONS) if SUBAGENTS_MAX_ITERATIONS else None
+SUBAGENTS_MAX_OUTPUT = os.getenv('SUBAGENTS_MAX_OUTPUT', '')
+SUBAGENTS_MAX_OUTPUT = int(SUBAGENTS_MAX_OUTPUT) if SUBAGENTS_MAX_OUTPUT else None
 SUBAGENTS_SYSTEM_PROMPT = os.getenv('SUBAGENTS_SYSTEM_PROMPT', '')
 
 AUTOMATION_MAX_COUNT = os.getenv('AUTOMATION_MAX_COUNT', '')
@@ -2114,6 +2118,9 @@ AUTOMATION_MAX_COUNT = os.getenv('AUTOMATION_MAX_COUNT', '')
 AUTOMATION_MIN_INTERVAL = os.getenv('AUTOMATION_MIN_INTERVAL', '')
 
 AUTOMATION_AUTH_TOKEN_EXPIRES_IN = os.getenv('AUTOMATION_AUTH_TOKEN_EXPIRES_IN', '1h')
+
+ENABLE_COMMENTS = os.getenv('ENABLE_COMMENTS', 'False').lower() == 'true'
+ENABLE_NOTIFICATIONS = os.getenv('ENABLE_NOTIFICATIONS', 'True').lower() == 'true'
 
 ENABLE_NOTES = os.getenv('ENABLE_NOTES', 'True').lower() == 'true'
 
@@ -2240,9 +2247,7 @@ SHOW_ADMIN_DETAILS = os.getenv('SHOW_ADMIN_DETAILS', 'true').lower() == 'true'
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', None)
 
 
-####################################
-# TASKS
-####################################
+# Tasks
 
 
 TASK_MODEL = os.getenv('TASK_MODEL', '')
@@ -2262,6 +2267,17 @@ CONTEXT_COMPACTION_MODEL = os.getenv('CONTEXT_COMPACTION_MODEL', '')
 ENABLE_CONTEXT_COMPACTION = os.getenv('ENABLE_CONTEXT_COMPACTION', 'False').lower() == 'true'
 
 ENABLE_TOOL_PERMISSIONS = os.getenv('ENABLE_TOOL_PERMISSIONS', 'False').lower() == 'true'
+ENABLE_TOOL_CALL_LABELS = os.getenv('ENABLE_TOOL_CALL_LABELS', 'False').lower() == 'true'
+ENABLE_TOOL_PERMISSIONS_AUTO = os.getenv('ENABLE_TOOL_PERMISSIONS_AUTO', 'False').lower() == 'true'
+TOOL_PERMISSIONS_AUTO_ENGINE = os.getenv('TOOL_PERMISSIONS_AUTO_ENGINE', '')
+TOOL_PERMISSIONS_AUTO_PROMPT = os.getenv('TOOL_PERMISSIONS_AUTO_PROMPT', '')
+TOOL_PERMISSIONS_AUTO_DECISIONS_API_BASE_URL = os.getenv(
+    'TOOL_PERMISSIONS_AUTO_DECISIONS_API_BASE_URL', 'https://api.openai.com/v1'
+)
+TOOL_PERMISSIONS_AUTO_DECISIONS_API_KEY = os.getenv('TOOL_PERMISSIONS_AUTO_DECISIONS_API_KEY', '')
+TOOL_PERMISSIONS_AUTO_DECISIONS_MODEL = os.getenv('TOOL_PERMISSIONS_AUTO_DECISIONS_MODEL', 'gpt-6-luna')
+TOOL_PERMISSIONS_AUTO_DECISIONS_THRESHOLD = float(os.getenv('TOOL_PERMISSIONS_AUTO_DECISIONS_THRESHOLD', '0.5'))
+
 
 CONTEXT_COMPACTION_TOKEN_THRESHOLD = int(os.getenv('CONTEXT_COMPACTION_TOKEN_THRESHOLD', '80000'))
 
@@ -2274,7 +2290,15 @@ CONTEXT_COMPACTION_RETENTION_PERCENTAGE = min(
 
 CONTEXT_COMPACTION_PROMPT_TEMPLATE = os.getenv('CONTEXT_COMPACTION_PROMPT_TEMPLATE', '')
 
+VISUALIZATION_PROMPT_TEMPLATE = os.getenv('VISUALIZATION_PROMPT_TEMPLATE', '')
+
 ENABLE_TOOL_SEARCH = os.getenv('ENABLE_TOOL_SEARCH', 'False').lower() == 'true'
+TOOL_SEARCH_ENGINE = os.getenv('TOOL_SEARCH_ENGINE', 'bm25')
+TOOL_SEARCH_DECISIONS_API_BASE_URL = os.getenv('TOOL_SEARCH_DECISIONS_API_BASE_URL', 'https://api.openai.com/v1')
+TOOL_SEARCH_DECISIONS_API_KEY = os.getenv('TOOL_SEARCH_DECISIONS_API_KEY', '')
+TOOL_SEARCH_DECISIONS_MODEL = os.getenv('TOOL_SEARCH_DECISIONS_MODEL', 'gpt-6-luna')
+TOOL_SEARCH_DECISIONS_THRESHOLD = float(os.getenv('TOOL_SEARCH_DECISIONS_THRESHOLD', '0.5'))
+TOOL_SEARCH_DECISIONS_PROMPT = os.getenv('TOOL_SEARCH_DECISIONS_PROMPT', '')
 
 TOOL_SEARCH_DEFER_THRESHOLD = int(os.getenv('TOOL_SEARCH_DEFER_THRESHOLD', '400'))
 
@@ -2546,9 +2570,7 @@ Your task is to synthesize these responses into a single, high-quality response.
 Responses from models: {{responses}}"""
 
 
-####################################
 # Auth
-####################################
 
 ENABLE_API_KEYS = os.getenv('ENABLE_API_KEYS', 'False').lower() == 'true'
 
@@ -2567,6 +2589,7 @@ ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS = (
 API_KEYS_ALLOWED_ENDPOINTS = os.getenv('API_KEYS_ALLOWED_ENDPOINTS', os.getenv('API_KEY_ALLOWED_ENDPOINTS', ''))
 
 JWT_EXPIRES_IN = os.getenv('JWT_EXPIRES_IN', '4w')
+SESSION_EXPIRES_IN = os.getenv('SESSION_EXPIRES_IN', '90d')
 
 if JWT_EXPIRES_IN == '-1':
     log.warning(
@@ -2574,9 +2597,7 @@ if JWT_EXPIRES_IN == '-1':
         '    See: https://docs.openwebui.com/reference/env-configuration\n'
     )
 
-####################################
 # OAuth config
-####################################
 
 # Master switch for OAuth/OIDC sign-in. Defaults to enabled so existing
 # deployments that already have a provider configured keep working; admins can
@@ -2736,35 +2757,42 @@ if _oauth_authorize_params:
         log.warning('OAUTH_AUTHORIZE_PARAMS is not valid JSON, ignoring')
 
 
-def oauth_client_kwargs(scope: str, **kwargs):
+def oauth_client_kwargs(scope: str, timeout: int | str | None, code_challenge_method: str | None, **kwargs):
     client_kwargs = {
         'scope': scope,
         **kwargs,
-        **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
+        **({'timeout': int(timeout)} if timeout else {}),
     }
 
-    if OAUTH_CODE_CHALLENGE_METHOD == 'S256':
+    if code_challenge_method == 'S256':
         client_kwargs['code_challenge_method'] = 'S256'
-    elif OAUTH_CODE_CHALLENGE_METHOD:
-        raise Exception(
-            'Code challenge methods other than "%s" not supported. Given: "%s"' % ('S256', OAUTH_CODE_CHALLENGE_METHOD)
+    elif code_challenge_method:
+        raise ValueError(
+            'Code challenge methods other than "%s" not supported. Given: "%s"' % ('S256', code_challenge_method)
         )
 
     return client_kwargs
 
 
-def load_oauth_providers():
+async def load_oauth_providers():
+    config = await Config.get_namespace('oauth')
+    oauth_timeout = config.get('oauth.timeout')
+    oauth_code_challenge_method = config.get('oauth.code_challenge_method')
     OAUTH_PROVIDERS.clear()
-    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    google_client_id = config.get('oauth.google.client_id')
+    google_client_secret = config.get('oauth.google.client_secret')
+    if google_client_id and google_client_secret:
 
         def google_oauth_register(oauth: OAuth):
             client = oauth.register(
                 name='google',
-                client_id=GOOGLE_CLIENT_ID,
-                client_secret=GOOGLE_CLIENT_SECRET,
+                client_id=google_client_id,
+                client_secret=google_client_secret,
                 server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-                client_kwargs=oauth_client_kwargs(GOOGLE_OAUTH_SCOPE),
-                redirect_uri=GOOGLE_REDIRECT_URI,
+                client_kwargs=oauth_client_kwargs(
+                    config.get('oauth.google.scope'), oauth_timeout, oauth_code_challenge_method
+                ),
+                redirect_uri=config.get('oauth.google.redirect_uri'),
                 **({'authorize_params': GOOGLE_OAUTH_AUTHORIZE_PARAMS} if GOOGLE_OAUTH_AUTHORIZE_PARAMS else {}),
             )
             return client
@@ -2773,37 +2801,47 @@ def load_oauth_providers():
             'register': google_oauth_register,
         }
 
-    if MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET and MICROSOFT_CLIENT_TENANT_ID:
+    microsoft_client_id = config.get('oauth.microsoft.client_id')
+    microsoft_client_secret = config.get('oauth.microsoft.client_secret')
+    microsoft_client_tenant_id = config.get('oauth.microsoft.tenant_id')
+    microsoft_client_login_base_url = config.get('oauth.microsoft.login_base_url')
+    if microsoft_client_id and microsoft_client_secret and microsoft_client_tenant_id:
 
         def microsoft_oauth_register(oauth: OAuth):
             client = oauth.register(
                 name='microsoft',
-                client_id=MICROSOFT_CLIENT_ID,
-                client_secret=MICROSOFT_CLIENT_SECRET,
-                server_metadata_url=f'{MICROSOFT_CLIENT_LOGIN_BASE_URL}/{MICROSOFT_CLIENT_TENANT_ID}/v2.0/.well-known/openid-configuration?appid={MICROSOFT_CLIENT_ID}',
-                client_kwargs=oauth_client_kwargs(MICROSOFT_OAUTH_SCOPE),
-                redirect_uri=MICROSOFT_REDIRECT_URI,
+                client_id=microsoft_client_id,
+                client_secret=microsoft_client_secret,
+                server_metadata_url=f'{microsoft_client_login_base_url}/{microsoft_client_tenant_id}/v2.0/.well-known/openid-configuration?appid={microsoft_client_id}',
+                client_kwargs=oauth_client_kwargs(
+                    config.get('oauth.microsoft.scope'), oauth_timeout, oauth_code_challenge_method
+                ),
+                redirect_uri=config.get('oauth.microsoft.redirect_uri'),
             )
             return client
 
         OAUTH_PROVIDERS['microsoft'] = {
-            'picture_url': MICROSOFT_CLIENT_PICTURE_URL,
+            'picture_url': config.get('oauth.microsoft.picture_url'),
             'register': microsoft_oauth_register,
         }
 
-    if GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET:
+    github_client_id = config.get('oauth.github.client_id')
+    github_client_secret = config.get('oauth.github.client_secret')
+    if github_client_id and github_client_secret:
 
         def github_oauth_register(oauth: OAuth):
             client = oauth.register(
                 name='github',
-                client_id=GITHUB_CLIENT_ID,
-                client_secret=GITHUB_CLIENT_SECRET,
+                client_id=github_client_id,
+                client_secret=github_client_secret,
                 access_token_url='https://github.com/login/oauth/access_token',
                 authorize_url='https://github.com/login/oauth/authorize',
                 api_base_url='https://api.github.com',
                 userinfo_endpoint='https://api.github.com/user',
-                client_kwargs=oauth_client_kwargs(GITHUB_CLIENT_SCOPE),
-                redirect_uri=GITHUB_CLIENT_REDIRECT_URI,
+                client_kwargs=oauth_client_kwargs(
+                    config.get('oauth.github.scope'), oauth_timeout, oauth_code_challenge_method
+                ),
+                redirect_uri=config.get('oauth.github.redirect_uri'),
             )
             return client
 
@@ -2812,47 +2850,55 @@ def load_oauth_providers():
             'sub_claim': 'id',
         }
 
-    if OAUTH_CLIENT_ID and (OAUTH_CLIENT_SECRET or OAUTH_CODE_CHALLENGE_METHOD) and OPENID_PROVIDER_URL:
+    oauth_client_id = config.get('oauth.client_id')
+    oauth_client_secret = config.get('oauth.client_secret')
+    openid_provider_url = config.get('oauth.provider_url')
+    oauth_token_endpoint_auth_method = config.get('oauth.token_endpoint_auth_method')
+    if oauth_client_id and (oauth_client_secret or oauth_code_challenge_method) and openid_provider_url:
 
         def oidc_oauth_register(oauth: OAuth):
             client = oauth.register(
                 name='oidc',
-                client_id=OAUTH_CLIENT_ID,
-                client_secret=OAUTH_CLIENT_SECRET,
-                server_metadata_url=OPENID_PROVIDER_URL,
+                client_id=oauth_client_id,
+                client_secret=oauth_client_secret,
+                server_metadata_url=openid_provider_url,
                 client_kwargs=oauth_client_kwargs(
-                    OAUTH_SCOPES,
+                    config.get('oauth.scopes'),
+                    oauth_timeout,
+                    oauth_code_challenge_method,
                     **(
-                        {'token_endpoint_auth_method': OAUTH_TOKEN_ENDPOINT_AUTH_METHOD}
-                        if OAUTH_TOKEN_ENDPOINT_AUTH_METHOD
+                        {'token_endpoint_auth_method': oauth_token_endpoint_auth_method}
+                        if oauth_token_endpoint_auth_method
                         else {}
                     ),
                 ),
-                redirect_uri=OPENID_REDIRECT_URI,
+                redirect_uri=config.get('oauth.redirect_uri'),
             )
             return client
 
         OAUTH_PROVIDERS['oidc'] = {
-            'name': OAUTH_PROVIDER_NAME,
+            'name': config.get('oauth.provider_name'),
             'register': oidc_oauth_register,
         }
 
-    if FEISHU_CLIENT_ID and FEISHU_CLIENT_SECRET:
+    feishu_client_id = config.get('oauth.feishu.client_id')
+    feishu_client_secret = config.get('oauth.feishu.client_secret')
+    if feishu_client_id and feishu_client_secret:
 
         def feishu_oauth_register(oauth: OAuth):
             client = oauth.register(
                 name='feishu',
-                client_id=FEISHU_CLIENT_ID,
-                client_secret=FEISHU_CLIENT_SECRET,
+                client_id=feishu_client_id,
+                client_secret=feishu_client_secret,
                 access_token_url='https://open.feishu.cn/open-apis/authen/v2/oauth/token',
                 authorize_url='https://accounts.feishu.cn/open-apis/authen/v1/authorize',
                 api_base_url='https://open.feishu.cn/open-apis',
                 userinfo_endpoint='https://open.feishu.cn/open-apis/authen/v1/user_info',
                 client_kwargs={
-                    'scope': FEISHU_OAUTH_SCOPE,
-                    **({'timeout': int(OAUTH_TIMEOUT)} if OAUTH_TIMEOUT else {}),
+                    'scope': config.get('oauth.feishu.scope'),
+                    **({'timeout': int(oauth_timeout)} if oauth_timeout else {}),
                 },
-                redirect_uri=FEISHU_REDIRECT_URI,
+                redirect_uri=config.get('oauth.feishu.redirect_uri'),
             )
             return client
 
@@ -2862,16 +2908,16 @@ def load_oauth_providers():
         }
 
     configured_providers = []
-    if GOOGLE_CLIENT_ID:
+    if google_client_id:
         configured_providers.append('Google')
-    if MICROSOFT_CLIENT_ID:
+    if microsoft_client_id:
         configured_providers.append('Microsoft')
-    if GITHUB_CLIENT_ID:
+    if github_client_id:
         configured_providers.append('GitHub')
-    if FEISHU_CLIENT_ID:
+    if feishu_client_id:
         configured_providers.append('Feishu')
 
-    if configured_providers and not OPENID_PROVIDER_URL and not OPENID_END_SESSION_ENDPOINT:
+    if configured_providers and not openid_provider_url and not config.get('oauth.end_session_endpoint'):
         provider_list = ', '.join(configured_providers)
         log.warning(
             f'⚠️  OAuth providers configured ({provider_list}) but OPENID_PROVIDER_URL not set - logout will not work!'
@@ -2882,11 +2928,7 @@ def load_oauth_providers():
         )
 
 
-load_oauth_providers()
-
-####################################
 # LDAP
-####################################
 
 ENABLE_LDAP = os.getenv('ENABLE_LDAP', 'false').lower() == 'true'
 
@@ -2928,8 +2970,7 @@ DEFAULT_CONFIG = {
     'skills.lazy_loading.enable': ENABLE_SKILL_LAZY_LOADING,
     'skills.content_max_chars': SKILL_CONTENT_MAX_CHARS,
     'skills.preview_max_chars': SKILL_PREVIEW_MAX_CHARS,
-    'direct.enable': ENABLE_DIRECT_CONNECTIONS,
-    'direct.integrations.enable': ENABLE_DIRECT_INTEGRATIONS,
+    'chats.view_max_chars': VIEW_CHAT_MAX_CHARS,
     'ollama.enable': ENABLE_OLLAMA_API,
     'ollama.base_urls': OLLAMA_BASE_URLS,
     'ollama.api_configs': OLLAMA_API_CONFIGS,
@@ -3012,7 +3053,12 @@ DEFAULT_CONFIG = {
     'rag.enable_hybrid_search': ENABLE_RAG_HYBRID_SEARCH,
     'rag.enable_hybrid_search_enriched_texts': ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS,
     'rag.full_context': RAG_FULL_CONTEXT,
+    # Retain the stored key so renaming the setting preserves saved thresholds.
+    'rag.full_context_char_threshold': RAG_FULL_TEXT_CHAR_THRESHOLD,
     'rag.file.max_count': RAG_FILE_MAX_COUNT,
+    'knowledge.max_upload_count': KNOWLEDGE_MAX_UPLOAD_COUNT,
+    'knowledge.max_file_count': KNOWLEDGE_MAX_FILE_COUNT,
+    'knowledge.max_file_size': KNOWLEDGE_MAX_FILE_SIZE,
     'rag.file.max_size': RAG_FILE_MAX_SIZE,
     'file.image_compression_width': FILE_IMAGE_COMPRESSION_WIDTH,
     'file.image_compression_height': FILE_IMAGE_COMPRESSION_HEIGHT,
@@ -3134,6 +3180,7 @@ DEFAULT_CONFIG = {
     'image_generation.size': IMAGE_SIZE,
     'image_generation.steps': IMAGE_STEPS,
     'image_generation.prompt.enable': ENABLE_IMAGE_PROMPT_GENERATION,
+    'image_generation.default_model': '',
     'image_generation.automatic1111.base_url': AUTOMATIC1111_BASE_URL,
     'image_generation.automatic1111.api_auth': AUTOMATIC1111_API_AUTH,
     'image_generation.automatic1111.api_params': AUTOMATIC1111_PARAMS,
@@ -3151,6 +3198,9 @@ DEFAULT_CONFIG = {
     'images.edit.enable': ENABLE_IMAGE_EDIT,
     'images.edit.engine': IMAGE_EDIT_ENGINE,
     'images.edit.model': IMAGE_EDIT_MODEL,
+    'images.edit.default_model': '',
+    'video_generation.enable': ENABLE_VIDEO_GENERATION,
+    'video_generation.default_model': '',
     'images.edit.size': IMAGE_EDIT_SIZE,
     'images.edit.openai.api_base_url': IMAGES_EDIT_OPENAI_API_BASE_URL,
     'images.edit.openai.api_version': IMAGES_EDIT_OPENAI_API_VERSION,
@@ -3242,6 +3292,8 @@ DEFAULT_CONFIG = {
     'automations.min_interval': AUTOMATION_MIN_INTERVAL,
     'automations.auth_token_expires_in': AUTOMATION_AUTH_TOKEN_EXPIRES_IN,
     'notes.enable': ENABLE_NOTES,
+    'comments.enable': ENABLE_COMMENTS,
+    'notifications.enable': ENABLE_NOTIFICATIONS,
     'users.enable_status': ENABLE_USER_STATUS,
     'evaluation.arena.enable': ENABLE_EVALUATION_ARENA_MODELS,
     'evaluation.arena.models': EVALUATION_ARENA_MODELS,
@@ -3261,8 +3313,23 @@ DEFAULT_CONFIG = {
     'chat.context_compaction.token_cap': CONTEXT_COMPACTION_TOKEN_CAP,
     'chat.context_compaction.retention_percentage': CONTEXT_COMPACTION_RETENTION_PERCENTAGE,
     'chat.context_compaction.prompt_template': CONTEXT_COMPACTION_PROMPT_TEMPLATE,
+    'chat.visualizations.prompt_template': VISUALIZATION_PROMPT_TEMPLATE,
     'chat.tool_permissions.enable': ENABLE_TOOL_PERMISSIONS,
+    'chat.tool_call_labels.enable': ENABLE_TOOL_CALL_LABELS,
+    'chat.tool_permissions.auto.enable': ENABLE_TOOL_PERMISSIONS_AUTO,
+    'chat.tool_permissions.auto.engine': TOOL_PERMISSIONS_AUTO_ENGINE,
+    'chat.tool_permissions.auto.prompt': TOOL_PERMISSIONS_AUTO_PROMPT,
+    'chat.tool_permissions.auto.decisions.api_base_url': TOOL_PERMISSIONS_AUTO_DECISIONS_API_BASE_URL,
+    'chat.tool_permissions.auto.decisions.api_key': TOOL_PERMISSIONS_AUTO_DECISIONS_API_KEY,
+    'chat.tool_permissions.auto.decisions.model': TOOL_PERMISSIONS_AUTO_DECISIONS_MODEL,
+    'chat.tool_permissions.auto.decisions.threshold': TOOL_PERMISSIONS_AUTO_DECISIONS_THRESHOLD,
     'chat.tool_search.enable': ENABLE_TOOL_SEARCH,
+    'chat.tool_search.engine': TOOL_SEARCH_ENGINE,
+    'chat.tool_search.decisions.api_base_url': TOOL_SEARCH_DECISIONS_API_BASE_URL,
+    'chat.tool_search.decisions.api_key': TOOL_SEARCH_DECISIONS_API_KEY,
+    'chat.tool_search.decisions.model': TOOL_SEARCH_DECISIONS_MODEL,
+    'chat.tool_search.decisions.threshold': TOOL_SEARCH_DECISIONS_THRESHOLD,
+    'chat.tool_search.decisions.prompt': TOOL_SEARCH_DECISIONS_PROMPT,
     'chat.tool_search.defer_threshold': TOOL_SEARCH_DEFER_THRESHOLD,
     'chat.tool_search.always_loaded': TOOL_SEARCH_ALWAYS_LOADED,
     'chat.tool_search.defer_builtin_tools': TOOL_SEARCH_DEFER_BUILTIN_TOOLS,
@@ -3286,6 +3353,7 @@ DEFAULT_CONFIG = {
     'auth.api_key.endpoint_restrictions': ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS,
     'auth.api_key.allowed_endpoints': API_KEYS_ALLOWED_ENDPOINTS,
     'auth.jwt_expiry': JWT_EXPIRES_IN,
+    'auth.session_expiry': SESSION_EXPIRES_IN,
     'auth.mfa.enable': ENABLE_MFA,
     'auth.mfa.allow_oauth_bypass': MFA_ALLOW_OAUTH_BYPASS,
     'auth.mfa.allow_trusted_header_bypass': MFA_ALLOW_TRUSTED_HEADER_BYPASS,

@@ -64,6 +64,7 @@ from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_db, get_async_session
 from open_webui.models.files import FileModel, Files, FileUpdateForm
 from open_webui.models.knowledge import Knowledges
+from open_webui.models.users import UserModel
 
 # Document loaders
 from open_webui.retrieval.loaders.youtube import YoutubeLoader, YoutubeTranscriptError
@@ -135,13 +136,9 @@ log = logging.getLogger(__name__)
 
 TIKTOKEN_DISALLOWED_SPECIAL = ()
 
-##########################################
-#
 # Utility functions
-# Give us this day our relevant chunks, and lead us
-# not into hallucination, but deliver us from noise.
-#
-##########################################
+# Let us find what is true among the many voices,
+# and let us not mistake the loudest answer for the wisest.
 
 
 def get_ef(
@@ -240,11 +237,7 @@ def get_rf(
     return rf
 
 
-##########################################
-#
 # API routes
-#
-##########################################
 
 
 RETRIEVAL_CONFIG_KEYS = {
@@ -305,6 +298,9 @@ RETRIEVAL_CONFIG_KEYS = {
     'FILE_IMAGE_COMPRESSION_HEIGHT': 'file.image_compression_height',
     'FILE_IMAGE_COMPRESSION_WIDTH': 'file.image_compression_width',
     'FILE_MAX_COUNT': 'rag.file.max_count',
+    'KNOWLEDGE_MAX_UPLOAD_COUNT': 'knowledge.max_upload_count',
+    'KNOWLEDGE_MAX_FILE_COUNT': 'knowledge.max_file_count',
+    'KNOWLEDGE_MAX_FILE_SIZE': 'knowledge.max_file_size',
     'FILE_MAX_SIZE': 'rag.file.max_size',
     'FIRECRAWL_API_BASE_URL': 'web.loader.firecrawl_api_url',
     'FIRECRAWL_API_KEY': 'web.loader.firecrawl_api_key',
@@ -356,6 +352,7 @@ RETRIEVAL_CONFIG_KEYS = {
     'RAG_EXTERNAL_RERANKER_TIMEOUT': 'rag.external_reranker_timeout',
     'RAG_EXTERNAL_RERANKER_URL': 'rag.external_reranker_url',
     'RAG_FULL_CONTEXT': 'rag.full_context',
+    'RAG_FULL_TEXT_CHAR_THRESHOLD': 'rag.full_context_char_threshold',
     'RAG_OLLAMA_API_KEY': 'rag.ollama.api_key',
     'RAG_OLLAMA_BASE_URL': 'rag.ollama.base_url',
     'RAG_OPENAI_API_BASE_URL': 'rag.openai.api_base_url',
@@ -621,6 +618,7 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
         'TOP_K': config['rag.top_k'],
         'BYPASS_EMBEDDING_AND_RETRIEVAL': config['rag.bypass_embedding_and_retrieval'],
         'RAG_FULL_CONTEXT': config['rag.full_context'],
+        'RAG_FULL_TEXT_CHAR_THRESHOLD': config['rag.full_context_char_threshold'],
         # Hybrid search settings
         'ENABLE_RAG_HYBRID_SEARCH': config['rag.enable_hybrid_search'],
         'ENABLE_RAG_HYBRID_SEARCH_ENRICHED_TEXTS': config['rag.enable_hybrid_search_enriched_texts'],
@@ -684,6 +682,9 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
         # File upload settings
         'FILE_MAX_SIZE': config['rag.file.max_size'],
         'FILE_MAX_COUNT': config['rag.file.max_count'],
+        'KNOWLEDGE_MAX_UPLOAD_COUNT': config['knowledge.max_upload_count'],
+        'KNOWLEDGE_MAX_FILE_COUNT': config['knowledge.max_file_count'],
+        'KNOWLEDGE_MAX_FILE_SIZE': config['knowledge.max_file_size'],
         'FILE_IMAGE_COMPRESSION_WIDTH': config['file.image_compression_width'],
         'FILE_IMAGE_COMPRESSION_HEIGHT': config['file.image_compression_height'],
         'ALLOWED_FILE_EXTENSIONS': config['rag.file.allowed_extensions'],
@@ -863,6 +864,7 @@ class ConfigForm(BaseModel):
     TOP_K: int | None = None
     BYPASS_EMBEDDING_AND_RETRIEVAL: bool | None = None
     RAG_FULL_CONTEXT: bool | None = None
+    RAG_FULL_TEXT_CHAR_THRESHOLD: int | None = Field(default=None, ge=0)
 
     # Hybrid search settings
     ENABLE_RAG_HYBRID_SEARCH: bool | None = None
@@ -935,6 +937,9 @@ class ConfigForm(BaseModel):
     # File upload settings
     FILE_MAX_SIZE: Union[int, str | None] = None
     FILE_MAX_COUNT: Union[int, str | None] = None
+    KNOWLEDGE_MAX_UPLOAD_COUNT: Union[int, str | None] = None
+    KNOWLEDGE_MAX_FILE_COUNT: Union[int, str | None] = None
+    KNOWLEDGE_MAX_FILE_SIZE: Union[int, str | None] = None
     FILE_IMAGE_COMPRESSION_WIDTH: Union[int, str | None] = None
     FILE_IMAGE_COMPRESSION_HEIGHT: Union[int, str | None] = None
     ALLOWED_FILE_EXTENSIONS: list[str] | None = None
@@ -998,9 +1003,34 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
     }
     if form_data.RAG_TOKENIZER_MODEL is not None:
         updates['rag.tokenizer_model'] = form_data.RAG_TOKENIZER_MODEL.strip()
-    for field in ('FILE_MAX_SIZE', 'FILE_MAX_COUNT', 'FILE_IMAGE_COMPRESSION_WIDTH', 'FILE_IMAGE_COMPRESSION_HEIGHT'):
+    for field in (
+        'FILE_MAX_SIZE',
+        'FILE_MAX_COUNT',
+        'KNOWLEDGE_MAX_UPLOAD_COUNT',
+        'KNOWLEDGE_MAX_FILE_COUNT',
+        'KNOWLEDGE_MAX_FILE_SIZE',
+        'FILE_IMAGE_COMPRESSION_WIDTH',
+        'FILE_IMAGE_COMPRESSION_HEIGHT',
+    ):
         if getattr(form_data, field) == '':
             updates[RETRIEVAL_CONFIG_KEYS[field]] = None
+
+    for field, label in (
+        ('KNOWLEDGE_MAX_UPLOAD_COUNT', 'Knowledge batch upload limit'),
+        ('KNOWLEDGE_MAX_FILE_COUNT', 'Knowledge file count limit'),
+        ('KNOWLEDGE_MAX_FILE_SIZE', 'Knowledge file size limit'),
+    ):
+        value = getattr(form_data, field)
+        if field in form_data.model_fields_set and value is None:
+            updates[RETRIEVAL_CONFIG_KEYS[field]] = None
+        if value not in (None, ''):
+            try:
+                value = int(value)
+                if value <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise HTTPException(400, f'{label} must be a positive integer.')
+            updates[RETRIEVAL_CONFIG_KEYS[field]] = value
 
     # Unload the previous internal reranker before applying its new settings.
     if config['rag.reranking_engine'] == '':
@@ -1057,6 +1087,7 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         'TOP_K': config['rag.top_k'],
         'BYPASS_EMBEDDING_AND_RETRIEVAL': config['rag.bypass_embedding_and_retrieval'],
         'RAG_FULL_CONTEXT': config['rag.full_context'],
+        'RAG_FULL_TEXT_CHAR_THRESHOLD': config['rag.full_context_char_threshold'],
         # Hybrid search settings
         'ENABLE_RAG_HYBRID_SEARCH': config['rag.enable_hybrid_search'],
         'TOP_K_RERANKER': config['rag.top_k_reranker'],
@@ -1116,6 +1147,9 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         # File upload settings
         'FILE_MAX_SIZE': config['rag.file.max_size'],
         'FILE_MAX_COUNT': config['rag.file.max_count'],
+        'KNOWLEDGE_MAX_UPLOAD_COUNT': config['knowledge.max_upload_count'],
+        'KNOWLEDGE_MAX_FILE_COUNT': config['knowledge.max_file_count'],
+        'KNOWLEDGE_MAX_FILE_SIZE': config['knowledge.max_file_size'],
         'FILE_IMAGE_COMPRESSION_WIDTH': config['file.image_compression_width'],
         'FILE_IMAGE_COMPRESSION_HEIGHT': config['file.image_compression_height'],
         'ALLOWED_FILE_EXTENSIONS': config['rag.file.allowed_extensions'],
@@ -1206,11 +1240,7 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
     }
 
 
-####################################
-#
 # Document process and retrieval
-#
-####################################
 
 
 def can_merge_chunks(a: Document, b: Document) -> bool:
@@ -1378,17 +1408,14 @@ def has_duplicate_content(collection_name: str, hash: str, file_id: str | None) 
     return False
 
 
-def save_docs_to_vector_db(
+def _chunk_docs(
     request: Request,
-    docs,
-    collection_name,
+    docs: list[Document],
+    collection_name: str,
     config: dict,
     metadata: dict | None = None,
-    overwrite: bool = False,
     split: bool = True,
-    add: bool = False,
-    user=None,
-) -> bool:
+) -> tuple[list[str], list[dict]]:
     def _get_docs_info(docs: list[Document]) -> str:
         docs_info = set()
 
@@ -1492,13 +1519,30 @@ def save_docs_to_vector_db(
         }
         for doc in docs
     ]
+    return texts, metadatas
+
+
+async def save_docs_to_vector_db(
+    request: Request,
+    docs: list[Document],
+    collection_name: str,
+    config: dict,
+    metadata: dict | None = None,
+    overwrite: bool = False,
+    split: bool = True,
+    add: bool = False,
+    user: UserModel | None = None,
+) -> bool:
+    texts, metadatas = await run_in_threadpool(
+        _chunk_docs, request, docs, collection_name, config, metadata=metadata, split=split
+    )
 
     try:
-        if get_vector_db_client().has_collection(collection_name=collection_name):
+        if await ASYNC_VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
             log.info('collection %s already exists', collection_name)
 
             if overwrite:
-                get_vector_db_client().delete_collection(collection_name=collection_name)
+                await ASYNC_VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name)
                 log.info('deleting existing collection %s', collection_name)
             elif add is False:
                 log.info('collection %s already exists, overwrite is False and add is False', collection_name)
@@ -1541,8 +1585,6 @@ def save_docs_to_vector_db(
             # Round up to whole provider batches to preserve request boundaries.
             buffer_size = batch_size * ((buffer_size + batch_size - 1) // batch_size)
 
-        # Run async embedding in sync context using the main event loop
-        # This allows the main loop to stay responsive to health checks during long operations
         embedding_timeout = RAG_EMBEDDING_TIMEOUT
 
         log.info('adding to collection %s', collection_name)
@@ -1550,20 +1592,15 @@ def save_docs_to_vector_db(
         try:
             for start in range(0, len(texts), buffer_size):
                 buffer_texts = texts[start : start + buffer_size]
-                future = asyncio.run_coroutine_threadsafe(
+                started_at = time.monotonic()
+                embeddings = await asyncio.wait_for(
                     embedding_function(
                         [text.replace('\n', ' ') for text in buffer_texts],
                         prefix=config['rag.embedding_content_prefix'],
                         user=user,
                     ),
-                    request.app.state.main_loop,
+                    timeout=embedding_timeout,
                 )
-                started_at = time.monotonic()
-                try:
-                    embeddings = future.result(timeout=embedding_timeout)
-                except TimeoutError:
-                    future.cancel()
-                    raise
                 if embedding_timeout is not None:
                     embedding_timeout = max(embedding_timeout - (time.monotonic() - started_at), 0)
                 log.info('embeddings generated %s for %s items', len(embeddings), len(buffer_texts))
@@ -1579,19 +1616,21 @@ def save_docs_to_vector_db(
                 ]
 
                 inserted_ids.extend(item['id'] for item in items)
-                get_vector_db_client().insert(
+                await ASYNC_VECTOR_DB_CLIENT.insert(
                     collection_name=collection_name,
                     items=items,
                 )
-                del items, embeddings, future
-        except Exception:
+                del items, embeddings
+        except BaseException:
+            # Also on cancellation: a partial collection would make retries skip indexing.
             if inserted_ids:
                 try:
                     if add:
-                        get_vector_db_client().delete(collection_name=collection_name, ids=inserted_ids)
+                        await asyncio.shield(
+                            ASYNC_VECTOR_DB_CLIENT.delete(collection_name=collection_name, ids=inserted_ids)
+                        )
                     else:
-                        # This call created/replaced the collection; an empty one would make retries skip indexing.
-                        get_vector_db_client().delete_collection(collection_name=collection_name)
+                        await asyncio.shield(ASYNC_VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name))
                 except Exception:
                     log.exception('failed to remove partially added items from collection %s', collection_name)
             raise
@@ -1736,6 +1775,7 @@ async def index_file(
                         'file_id': file.id,
                         'file_name': file.filename,
                         'file_content_type': file.meta.get('content_type'),
+                        'client_ip': request.client.host if request.client else '',
                     }
                     docs = await loader.aload(file.filename, file.meta.get('content_type'), file_path)
 
@@ -1800,14 +1840,9 @@ async def index_file(
 
                     # External embedding API takes time (5-60s+).
                     # Subsequent updates use fresh async sessions.
-                    # NOTE: save_docs_to_vector_db is a sync function that
-                    # calls asyncio.run_coroutine_threadsafe(..., main_loop).result()
-                    # which blocks the calling thread.  We MUST run it in a
-                    # worker thread to avoid deadlocking the event loop.
                     result = True
                     for name in collection_names:
-                        result = await run_in_threadpool(
-                            save_docs_to_vector_db,
+                        result = await save_docs_to_vector_db(
                             request,
                             docs=docs,
                             collection_name=name,
@@ -1922,7 +1957,7 @@ async def process_text(
     log.debug('text_content: %s', text_content)
 
     config = await Config.get_many(*RETRIEVAL_CONFIG_KEYS.values())
-    result = await run_in_threadpool(save_docs_to_vector_db, request, docs, collection_name, config, user=user)
+    result = await save_docs_to_vector_db(request, docs, collection_name, config, user=user)
     if result:
         await publish_event(
             request,
@@ -2186,8 +2221,7 @@ async def process_web(
                 await _validate_collection_access([collection_name], user, access_type='write')
 
             if not config['web.search.bypass_embedding_and_retrieval']:
-                await run_in_threadpool(
-                    save_docs_to_vector_db,
+                await save_docs_to_vector_db(
                     request,
                     docs,
                     collection_name,
@@ -2743,8 +2777,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
             collection_name = f'web-search-{user.id}-{calculate_sha256_string("-".join(form_data.queries))}'[:63]
 
             try:
-                await run_in_threadpool(
-                    save_docs_to_vector_db,
+                await save_docs_to_vector_db(
                     request,
                     docs,
                     collection_name,
@@ -2927,11 +2960,7 @@ async def query_collection_handler(
         )
 
 
-####################################
-#
 # Vector DB operations
-#
-####################################
 
 
 class DeleteForm(BaseModel):
@@ -2969,13 +2998,7 @@ async def delete_entries_from_collection(
                     detail=ERROR_MESSAGES.DEFAULT('File has no hash; cannot delete vector entries by hash.'),
                 )
 
-            # Pre-existing bug: this used `metadata=` which is not a
-            # parameter on `VectorDBBase.delete` nor on any backend
-            # implementation, so the call always raised TypeError that
-            # was silently swallowed by the surrounding `except
-            # Exception` and the endpoint reported `{'status': False}`
-            # for every request. Use `filter` to actually do what the
-            # endpoint name promises.
+            # Vector deletion accepts filter, not metadata; passing the wrong keyword raises TypeError.
             await ASYNC_VECTOR_DB_CLIENT.delete(
                 collection_name=form_data.collection_name,
                 filter={'hash': hash},
@@ -3154,8 +3177,7 @@ async def process_files_batch(
     # Save all documents in one batch
     if all_docs:
         try:
-            await run_in_threadpool(
-                save_docs_to_vector_db,
+            await save_docs_to_vector_db(
                 request,
                 all_docs,
                 collection_name,

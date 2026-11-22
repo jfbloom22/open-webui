@@ -3,8 +3,7 @@
 	const i18n = getContext<any>('i18n');
 
 	import { toast } from 'svelte-sonner';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { closePageTabs } from '$lib/stores/chatViewStates';
 
 	import {
 		createNewChannel,
@@ -126,9 +125,7 @@
 			toast.success($i18n.t('Channel deleted successfully'));
 			onUpdate();
 
-			if ($page.url.pathname === `/channels/${channelId}`) {
-				goto('/');
-			}
+			closePageTabs(`/channels/${channelId}`);
 		}
 
 		show = false;
@@ -142,7 +139,7 @@
 	};
 </script>
 
-<Modal size="md" bind:show>
+<Modal ariaLabel={edit ? $i18n.t('Edit Channel') : $i18n.t('Create Channel')} size="md" bind:show>
 	<div>
 		<div class=" flex justify-between dark:text-gray-300 px-4 pt-3 pb-1">
 			<div class=" text-sm self-center">
@@ -154,7 +151,7 @@
 			</div>
 			<button
 				aria-label={$i18n.t('Close')}
-				class="self-center rounded-lg p-1 text-gray-500 transition hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+				class="self-center rounded-lg py-1 text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-0"
 				on:click={() => {
 					show = false;
 				}}
@@ -173,7 +170,9 @@
 				>
 					{#if !edit}
 						<div class="flex flex-col w-full mt-2 mb-1">
-							<div class=" mb-1 text-xs text-gray-500">{$i18n.t('Channel Type')}</div>
+							<label for="channel-type" class="block mb-1 text-xs text-gray-500"
+								>{$i18n.t('Channel Type')}</label
+							>
 
 							<div class="flex-1">
 								<Tooltip
@@ -187,6 +186,7 @@
 									placement="top-start"
 								>
 									<select
+										id="channel-type"
 										class="w-full text-sm bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-700 outline-hidden"
 										bind:value={type}
 									>
@@ -218,15 +218,16 @@
 					</div>
 
 					<div class="flex flex-col w-full mt-2">
-						<div class=" mb-1 text-xs text-gray-500">
+						<label for="channel-name" class="block mb-1 text-xs text-gray-500">
 							{$i18n.t('Channel Name')}
 							<span class="text-xs text-gray-200 dark:text-gray-800 ml-0.5">
 								{#if type === 'dm'}{$i18n.t('Optional')}{/if}
 							</span>
-						</div>
+						</label>
 
 						<div class="flex-1">
 							<input
+								id="channel-name"
 								class="w-full text-sm bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-700 outline-hidden"
 								type="text"
 								bind:value={name}

@@ -30,11 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
-####################
 # UserGroup DB Schema
-# Let none who belong to this house be turned away,
-# and let the covenant hold for every member.
-####################
 
 
 class Group(Base):
@@ -102,9 +98,7 @@ class GroupMemberModel(BaseModel):
     updated_at: Optional[int] = None  # timestamp in epoch
 
 
-####################
 # Forms
-####################
 
 
 class GroupResponse(GroupModel):
@@ -128,6 +122,14 @@ class GroupForm(BaseModel):
     description: str
     permissions: Optional[dict] = None
     data: Optional[dict] = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        name = name.strip()
+        if not name:
+            raise ValueError('Group name cannot be empty.')
+        return name
 
     @field_validator('data')
     @classmethod

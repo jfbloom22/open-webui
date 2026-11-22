@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, onMount, tick } from 'svelte';
-	import { models, config } from '$lib/stores';
+	import { config } from '$lib/stores';
 
 	import { toast } from 'svelte-sonner';
 	import { copyToClipboard } from '$lib/utils';
@@ -9,6 +9,9 @@
 	import Modal from '$lib/components/common/Modal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import MapSelector from '$lib/components/common/Valves/MapSelector.svelte';
+	import { getChatContext } from '$lib/components/chat/context';
+
+	const { models } = getChatContext();
 
 	const i18n = getContext<typeof import('$lib/i18n').default>('i18n');
 
@@ -106,7 +109,7 @@
 	}
 </script>
 
-<Modal bind:show size="md">
+<Modal ariaLabel={title ?? $i18n.t('Input Variables')} bind:show size="md">
 	<div>
 		<div class=" flex justify-between dark:text-gray-300 px-4 pt-3 pb-1">
 			<div class=" text-sm font-medium self-center">
@@ -114,7 +117,7 @@
 			</div>
 			<button
 				aria-label={$i18n.t('Close')}
-				class="self-center rounded-lg p-1 text-gray-500 transition hover:bg-gray-50 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+				class="self-center rounded-lg py-1 text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-0"
 				on:click={() => {
 					show = false;
 				}}

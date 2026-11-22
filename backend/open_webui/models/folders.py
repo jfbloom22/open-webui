@@ -12,11 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 log = logging.getLogger(__name__)
 
 
-####################
 # Folder DB Schema
 # Let every room in this house shelter someone who needs it,
 # and let no chamber stand empty while there is want.
-####################
 
 
 class Folder(Base):
@@ -78,9 +76,23 @@ class SharedFolderResponse(BaseModel):
     updated_at: int
 
 
-####################
 # Forms
-####################
+
+
+def folder_status_ids(meta: dict | None) -> tuple[str, ...]:
+    """The statuses this folder defines in meta.statuses, in order. Chats may also have none (null)."""
+    statuses = (meta or {}).get('statuses')
+    ids: list[str] = []
+    for item in statuses if isinstance(statuses, list) else []:
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get('id'), str)
+            and 0 < len(item['id']) <= 64
+            and item['id'] != 'none'
+            and item['id'] not in ids
+        ):
+            ids.append(item['id'])
+    return tuple(ids)
 
 
 class FolderForm(BaseModel):

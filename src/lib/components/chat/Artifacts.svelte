@@ -1,60 +1,53 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { onDestroy, onMount, getContext, createEventDispatcher } from 'svelte';
+	import { getContext, onDestroy } from 'svelte';
+	import type { Readable } from 'svelte/store';
 	const i18n: any = getContext('i18n');
-	const dispatch = createEventDispatcher();
 
+	import { config, settings, showSidebar } from '$lib/stores';
+	import { copyToClipboard } from '$lib/utils';
 	import {
-		artifactCode,
-		chatId,
-		config,
-		settings,
-		showArtifacts,
-		showControls,
-		artifactContents,
-		showSidebar
-	} from '$lib/stores';
-	import { copyToClipboard, createMessagesList } from '$lib/utils';
+		ARTIFACT_FULLSCREEN_UNAVAILABLE_MESSAGE,
+		getArtifactFullscreenMode,
+		requestArtifactIframeFullscreen,
+		setArtifactAppFullscreenChrome,
+		type FullscreenIframe
+	} from '$lib/utils/artifactFullscreen';
 	import { injectCsp } from '$lib/utils/csp';
 
-	import XMark from '../icons/XMark.svelte';
-	import ArrowsPointingOut from '../icons/ArrowsPointingOut.svelte';
+	import Icon from './FileNav/Icon.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import SvgPanZoom from '../common/SVGPanZoom.svelte';
-	import ArrowLeft from '../icons/ArrowLeft.svelte';
-	import Download from '../icons/Download.svelte';
 
 	export let overlay = false;
+	export let artifacts: Readable<{ type: string; content: string }[]>;
+	/** The code block to show; a new object selects it again. */
+	export let selection: { code: string } | null = null;
+	export let chatId = '';
 
-	let contents: Array<{ type: string; content: string }> = [];
+	let contents: { type: string; content: string }[] = [];
 	let selectedContentIdx = 0;
+	let appliedSelection: typeof selection = null;
+
+	const updateContents = (next: { type: string; content: string }[]) => {
+		if (next.length === 0) selectedContentIdx = 0;
+		else if (next.length > contents.length) selectedContentIdx = next.length - 1;
+		else if (selectedContentIdx > next.length - 1) selectedContentIdx = next.length - 1;
+		return next;
+	};
+	$: contents = updateContents($artifacts ?? []);
+	$: if (selection && selection !== appliedSelection && contents.length > 0) {
+		appliedSelection = selection;
+		const codeIdx = contents.findIndex((content) => content.content.includes(selection.code));
+		if (codeIdx !== -1) selectedContentIdx = codeIdx;
+	}
 
 	let copied = false;
 	let iframeElement: HTMLIFrameElement;
 	let fullscreenError = '';
 	let appFullscreen = false;
 
-	type FullscreenIframe = HTMLIFrameElement & {
-		webkitRequestFullscreen?: () => void | Promise<void>;
-		msRequestFullscreen?: () => void | Promise<void>;
-	};
-
-	const fullscreenUnavailableMessage =
-		'Full screen is unavailable in this browser or embedded context.';
-	const appFullscreenClass = 'artifact-app-fullscreen-active';
-
-	const setAppFullscreenChrome = (active: boolean) => {
-		if (typeof document !== 'undefined') {
-			document.body.classList.toggle(appFullscreenClass, active);
-		}
-	};
-
-	onDestroy(() => setAppFullscreenChrome(false));
-
-	const isStandaloneWebApp = () =>
-		typeof window !== 'undefined' &&
-		((window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
-			window.matchMedia('(display-mode: standalone)').matches);
+	onDestroy(() => setArtifactAppFullscreenChrome(false));
 
 	function navigateContent(direction: 'prev' | 'next') {
 		selectedContentIdx =
@@ -97,42 +90,29 @@
 	const showFullScreen = async () => {
 		fullscreenError = '';
 
-		// iPad Home Screen web apps already run without Safari chrome. Use an
-		// app-level viewport mode there because element fullscreen is not
-		// consistently available in standalone WebKit contexts.
-		if (isStandaloneWebApp()) {
+		// Standalone iPad web apps already run without Safari chrome. Use an
+		// app-level viewport mode because element fullscreen is unreliable there.
+		if (getArtifactFullscreenMode() === 'app') {
 			const enteringFullscreen = !appFullscreen;
-			if (enteringFullscreen) {
-				// The iPad standalone layout can be above the mobile breakpoint, so
-				// do this explicitly instead of relying on the $mobile store.
-				showSidebar.set(false);
-			}
-			setAppFullscreenChrome(enteringFullscreen);
+			if (enteringFullscreen) showSidebar.set(false);
+			setArtifactAppFullscreenChrome(enteringFullscreen);
 			appFullscreen = enteringFullscreen;
 			return;
 		}
 
 		const iframe = iframeElement as FullscreenIframe | undefined;
 		if (!iframe) {
-			fullscreenError = fullscreenUnavailableMessage;
-			toast.error(fullscreenUnavailableMessage);
+			fullscreenError = ARTIFACT_FULLSCREEN_UNAVAILABLE_MESSAGE;
+			toast.error(ARTIFACT_FULLSCREEN_UNAVAILABLE_MESSAGE);
 			return;
 		}
 
 		try {
-			if (typeof iframe.requestFullscreen === 'function') {
-				await iframe.requestFullscreen();
-			} else if (typeof iframe.webkitRequestFullscreen === 'function') {
-				await iframe.webkitRequestFullscreen();
-			} else if (typeof iframe.msRequestFullscreen === 'function') {
-				await iframe.msRequestFullscreen();
-			} else {
-				throw new Error('Fullscreen API is unavailable');
-			}
+			await requestArtifactIframeFullscreen(iframe);
 		} catch (error) {
 			console.error('Failed to enter artifact fullscreen:', error);
-			fullscreenError = fullscreenUnavailableMessage;
-			toast.error(fullscreenUnavailableMessage);
+			fullscreenError = ARTIFACT_FULLSCREEN_UNAVAILABLE_MESSAGE;
+			toast.error(ARTIFACT_FULLSCREEN_UNAVAILABLE_MESSAGE);
 		}
 	};
 
@@ -141,44 +121,12 @@
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `artifact-${$chatId}-${selectedContentIdx}.html`;
+		a.download = `artifact-${chatId}-${selectedContentIdx}.html`;
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
 	};
-
-	onMount(() => {
-		const unsubscribeArtifactContents = artifactContents.subscribe((value) => {
-			const newContents = value ?? [];
-			console.log('Artifact contents updated:', newContents);
-
-			if (newContents.length === 0) {
-				showControls.set(false);
-				showArtifacts.set(false);
-				selectedContentIdx = 0;
-			} else if (newContents.length > contents.length) {
-				selectedContentIdx = newContents.length - 1;
-			} else if (selectedContentIdx > newContents.length - 1) {
-				selectedContentIdx = newContents.length - 1;
-			}
-
-			contents = newContents;
-		});
-
-		const unsubscribeArtifactCode = artifactCode.subscribe((value) => {
-			if (contents && value) {
-				const codeIdx = contents.findIndex((content) => content.content.includes(value));
-				selectedContentIdx = codeIdx !== -1 ? codeIdx : 0;
-			}
-		});
-
-		return () => {
-			unsubscribeArtifactCode();
-			unsubscribeArtifactContents();
-			artifactCode.set(null);
-		};
-	});
 </script>
 
 <div
@@ -186,131 +134,80 @@
 	class:artifact-app-fullscreen={appFullscreen}
 	id="artifacts-container"
 >
-	<div class="w-full h-full flex flex-col flex-1 relative">
+	<div class="w-full min-h-0 flex flex-col flex-1 relative">
 		{#if contents.length > 0}
 			<div
-				class="pointer-events-auto z-20 flex justify-between items-center p-2.5 font-primar text-gray-900 dark:text-white"
+				class="pointer-events-auto z-20 shrink-0 flex items-center justify-between gap-2 px-2 pb-1.5"
 			>
-				<div class="flex-1 flex items-center justify-between pr-1">
-					<div class="flex items-center space-x-2">
-						<div class="flex items-center gap-0.5 self-center min-w-fit" dir="ltr">
-							<button
-								aria-label={$i18n.t('Previous version')}
-								class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition disabled:cursor-not-allowed"
-								on:click={() => navigateContent('prev')}
-								disabled={contents.length <= 1}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke="currentColor"
-									stroke-width="2.5"
-									class="size-3.5"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M15.75 19.5 8.25 12l7.5-7.5"
-									/>
-								</svg>
-							</button>
-
-							<div class="text-xs self-center dark:text-gray-100 min-w-fit">
-								{$i18n.t('Version {{selectedVersion}} of {{totalVersions}}', {
-									selectedVersion: selectedContentIdx + 1,
-									totalVersions: contents.length
-								})}
-							</div>
-
-							<button
-								aria-label={$i18n.t('Next version')}
-								class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition disabled:cursor-not-allowed"
-								on:click={() => navigateContent('next')}
-								disabled={contents.length <= 1}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke="currentColor"
-									stroke-width="2.5"
-									class="size-3.5"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="m8.25 4.5 7.5 7.5-7.5 7.5"
-									/>
-								</svg>
-							</button>
-						</div>
-					</div>
-
-					<div class="flex items-center gap-1.5">
+				<div class="flex min-w-0 items-center gap-0.5" dir="ltr">
+					<button
+						aria-label={$i18n.t('Previous version')}
+						class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 transition-colors duration-100 hover:text-gray-600 disabled:text-gray-200 dark:text-gray-500 dark:hover:text-gray-300 dark:disabled:text-gray-700"
+						on:click={() => navigateContent('prev')}
+						disabled={selectedContentIdx === 0}
+						><Icon name="chevron-left" size={11} strokeWidth={1.5} /></button
+					>
+					<span class="truncate text-xs text-gray-500 dark:text-gray-400">
+						{$i18n.t('Version {{selectedVersion}} of {{totalVersions}}', {
+							selectedVersion: selectedContentIdx + 1,
+							totalVersions: contents.length
+						})}
+					</span>
+					<button
+						aria-label={$i18n.t('Next version')}
+						class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 transition-colors duration-100 hover:text-gray-600 disabled:text-gray-200 dark:text-gray-500 dark:hover:text-gray-300 dark:disabled:text-gray-700"
+						on:click={() => navigateContent('next')}
+						disabled={selectedContentIdx === contents.length - 1}
+						><Icon name="chevron-right" size={11} strokeWidth={1.5} /></button
+					>
+				</div>
+				<div class="flex shrink-0 items-center gap-0.5">
+					<Tooltip content={copied ? $i18n.t('Copied') : $i18n.t('Copy')}>
 						<button
-							class="bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5"
+							aria-label={copied ? $i18n.t('Copied') : $i18n.t('Copy')}
+							class="flex h-5 w-5 items-center justify-center rounded text-gray-400 transition-colors duration-100 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
 							on:click={() => {
 								copyToClipboard(contents[selectedContentIdx].content);
 								copied = true;
-
 								setTimeout(() => {
 									copied = false;
 								}, 2000);
-							}}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
+							}}><Icon name={copied ? 'check' : 'copy'} size={11} strokeWidth={1.4} /></button
 						>
-
-						<Tooltip content={$i18n.t('Download')}>
+					</Tooltip>
+					<Tooltip content={$i18n.t('Download')}>
+						<button
+							aria-label={$i18n.t('Download')}
+							class="flex h-5 w-5 items-center justify-center rounded text-gray-400 transition-colors duration-100 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+							on:click={downloadArtifact}
+							><Icon name="download" size={11} strokeWidth={1.4} /></button
+						>
+					</Tooltip>
+					{#if contents[selectedContentIdx].type === 'iframe'}
+						<Tooltip content={$i18n.t('Open in full screen')} touch={false}>
 							<button
-								aria-label={$i18n.t('Download')}
-								class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
-								on:click={downloadArtifact}
+								type="button"
+								aria-label={$i18n.t('Open in full screen')}
+								aria-pressed={appFullscreen}
+								class="flex h-5 w-5 items-center justify-center rounded text-gray-400 transition-colors duration-100 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+								on:click={showFullScreen}><Icon name="expand" size={11} strokeWidth={1.4} /></button
 							>
-								<Download className="size-3.5" />
-							</button>
 						</Tooltip>
-
-						{#if contents[selectedContentIdx].type === 'iframe'}
-							<Tooltip content={$i18n.t('Open in full screen')} touch={false}>
-								<button
-									type="button"
-									aria-label={$i18n.t('Open in full screen')}
-									aria-pressed={appFullscreen}
-									class=" bg-none border-none text-xs bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md p-0.5"
-									on:click={showFullScreen}
-								>
-									<ArrowsPointingOut className="size-3.5" />
-								</button>
-							</Tooltip>
-						{/if}
-					</div>
-
-					{#if fullscreenError}
-						<div class="px-2.5 pb-1 text-xs text-red-600 dark:text-red-400" role="alert">
-							{fullscreenError}
-						</div>
 					{/if}
 				</div>
-
-				<button
-					aria-label={$i18n.t('Close')}
-					class="self-center pointer-events-auto p-1 rounded-full bg-white dark:bg-gray-850"
-					on:click={() => {
-						dispatch('close');
-						showControls.set(false);
-						showArtifacts.set(false);
-					}}
-				>
-					<XMark className="size-3.5 text-gray-900 dark:text-white" />
-				</button>
 			</div>
+			{#if fullscreenError}
+				<div class="px-2.5 pb-1 text-xs text-red-600 dark:text-red-400" role="alert">
+					{fullscreenError}
+				</div>
+			{/if}
 		{/if}
 
 		{#if overlay}
 			<div class=" absolute top-0 left-0 right-0 bottom-0 z-10"></div>
 		{/if}
 
-		<div class="flex-1 w-full h-full">
+		<div class="flex-1 w-full min-h-0 bg-white dark:bg-gray-850">
 			<div class=" h-full flex flex-col">
 				{#if contents.length > 0}
 					<div class="max-w-full w-full h-full">
@@ -344,7 +241,7 @@
 						{/if}
 					</div>
 				{:else}
-					<div class="m-auto font-normal text-xs text-gray-900 dark:text-white">
+					<div class="m-auto p-6 text-center font-normal text-xs text-gray-900 dark:text-white">
 						{$i18n.t('No HTML, CSS, or JavaScript content found.')}
 					</div>
 				{/if}
